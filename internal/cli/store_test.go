@@ -335,9 +335,10 @@ func TestNormalizeKey(t *testing.T) {
 		{"REDIS_URL", "redis.url"},
 		{"MY_APP_SECRET_KEY", "my.app.secret.key"},
 
-		// Should NOT be converted (no underscore)
-		{"SIMPLE", "SIMPLE"},
-		{"HOST", "HOST"},
+		// Single words are lowercased (to match envNameToKey behavior)
+		{"SIMPLE", "simple"},
+		{"HOST", "host"},
+		{"PORT", "port"},
 
 		// Should NOT be converted (has lowercase)
 		{"Database_Host", "Database_Host"},
