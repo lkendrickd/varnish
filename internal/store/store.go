@@ -1,10 +1,4 @@
-// Package domain contains the core business logic for varnish.
-//
-// store.go manages the central variable store at ~/.varnish/store.yaml.
-//
-// This file is used by:
-//   - cli/store.go: for set/get/list/delete/import commands
-//   - domain/resolver.go: to get variables when generating .env files
+// Package store manages the central variable store at ~/.varnish/store.yaml.
 //
 // The store uses a flat namespace with dot-separated keys:
 //
@@ -14,7 +8,7 @@
 //
 // Writes are atomic: we write to a temp file then rename, so a crash
 // mid-write won't corrupt the store.
-package domain
+package store
 
 import (
 	"fmt"
@@ -38,17 +32,17 @@ type Store struct {
 	Variables map[string]string `yaml:"variables"`
 }
 
-// NewStore creates an empty store with version 1.
-func NewStore() *Store {
+// New creates an empty store with version 1.
+func New() *Store {
 	return &Store{
 		Version:   1,
 		Variables: make(map[string]string),
 	}
 }
 
-// LoadStore reads the store from ~/.varnish/store.yaml.
+// Load reads the store from ~/.varnish/store.yaml.
 // If the file doesn't exist, returns an empty store (not an error).
-func LoadStore() (*Store, error) {
+func Load() (*Store, error) {
 	path, err := config.StorePath()
 	if err != nil {
 		return nil, fmt.Errorf("get store path: %w", err)
@@ -57,23 +51,23 @@ func LoadStore() (*Store, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		// No store yet, return empty one
-		return NewStore(), nil
+		return New(), nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read store: %w", err)
 	}
 
-	var store Store
-	if err := yaml.Unmarshal(data, &store); err != nil {
+	var s Store
+	if err := yaml.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parse store: %w", err)
 	}
 
 	// Ensure map is initialized even if YAML had empty variables
-	if store.Variables == nil {
-		store.Variables = make(map[string]string)
+	if s.Variables == nil {
+		s.Variables = make(map[string]string)
 	}
 
-	return &store, nil
+	return &s, nil
 }
 
 // Save writes the store to ~/.varnish/store.yaml atomically.
@@ -152,23 +146,23 @@ func (s *Store) SaveTo(path string) error {
 	return config.AtomicWrite(path, data, config.PermSecure)
 }
 
-// LoadStoreFrom reads a store from a specific path (for testing).
-func LoadStoreFrom(path string) (*Store, error) {
+// LoadFrom reads a store from a specific path (for testing).
+func LoadFrom(path string) (*Store, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read store: %w", err)
 	}
 
-	var store Store
-	if err := yaml.Unmarshal(data, &store); err != nil {
+	var s Store
+	if err := yaml.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parse store: %w", err)
 	}
 
-	if store.Variables == nil {
-		store.Variables = make(map[string]string)
+	if s.Variables == nil {
+		s.Variables = make(map[string]string)
 	}
 
-	return &store, nil
+	return &s, nil
 }
 
 // Set adds or updates a variable in the store.

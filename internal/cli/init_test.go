@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/store"
 )
 
 func TestRunInitBasic(t *testing.T) {
@@ -77,7 +78,7 @@ func TestRunInitWithProjectName(t *testing.T) {
 	}
 
 	// Verify project config was created
-	cfg, err := domain.LoadProjectConfigByName("myapp")
+	cfg, err := project.LoadByName("myapp")
 	if err != nil {
 		t.Fatalf("failed to load project config: %v", err)
 	}
@@ -324,7 +325,7 @@ func TestRunInitNoImport(t *testing.T) {
 	}
 
 	// Verify value was NOT imported into store
-	store, err := domain.LoadStore()
+	store, err := store.Load()
 	if err != nil {
 		t.Fatalf("failed to load store: %v", err)
 	}

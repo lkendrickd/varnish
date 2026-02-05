@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/dk/varnish/internal/config"
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/store"
 )
 
 // setupTestEnv creates a temporary varnish environment for testing
@@ -117,10 +117,10 @@ func TestRunStoreList(t *testing.T) {
 	defer cleanup()
 
 	// Create a store with some values
-	store := domain.NewStore()
-	store.Set("project.db.host", "localhost")
-	store.Set("project.db.port", "5432")
-	if err := store.Save(); err != nil {
+	st := store.New()
+	st.Set("project.db.host", "localhost")
+	st.Set("project.db.port", "5432")
+	if err := st.Save(); err != nil {
 		t.Fatalf("failed to save store: %v", err)
 	}
 
@@ -145,9 +145,9 @@ func TestRunStoreListJSON(t *testing.T) {
 	defer cleanup()
 
 	// Create a store with some values
-	store := domain.NewStore()
-	store.Set("test.key", "value")
-	if err := store.Save(); err != nil {
+	st := store.New()
+	st.Set("test.key", "value")
+	if err := st.Save(); err != nil {
 		t.Fatalf("failed to save store: %v", err)
 	}
 
@@ -172,9 +172,9 @@ func TestRunStoreDelete(t *testing.T) {
 	defer cleanup()
 
 	// Create a store with a value
-	store := domain.NewStore()
-	store.Set("todelete", "value")
-	if err := store.Save(); err != nil {
+	st := store.New()
+	st.Set("todelete", "value")
+	if err := st.Save(); err != nil {
 		t.Fatalf("failed to save store: %v", err)
 	}
 
@@ -217,9 +217,9 @@ func TestRunStoreAliases(t *testing.T) {
 	defer cleanup()
 
 	// Create a store with values
-	store := domain.NewStore()
-	store.Set("alias.test", "value")
-	if err := store.Save(); err != nil {
+	st := store.New()
+	st.Set("alias.test", "value")
+	if err := st.Save(); err != nil {
 		t.Fatalf("failed to save store: %v", err)
 	}
 
@@ -319,5 +319,133 @@ func TestRunStoreSetMissingValue(t *testing.T) {
 	err := runStore([]string{"set", "-g", "key"}, &stdout, &stderr)
 	if err == nil {
 		t.Error("expected error when value is missing")
+	}
+}
+
+func TestNormalizeKey(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Shell-style conversions
+		{"DATABASE_HOST", "database.host"},
+		{"API_KEY", "api.key"},
+		{"DB_PASSWORD", "db.password"},
+		{"REDIS_URL", "redis.url"},
+		{"MY_APP_SECRET_KEY", "my.app.secret.key"},
+
+		// Should NOT be converted (no underscore)
+		{"SIMPLE", "SIMPLE"},
+		{"HOST", "HOST"},
+
+		// Should NOT be converted (has lowercase)
+		{"Database_Host", "Database_Host"},
+		{"mixedCase_Key", "mixedCase_Key"},
+		{"db_host", "db_host"},
+
+		// Should NOT be converted (already dot notation)
+		{"database.host", "database.host"},
+		{"api.key", "api.key"},
+		{"some.nested.key", "some.nested.key"},
+
+		// Should NOT be converted (has dots)
+		{"MY.KEY", "MY.KEY"},
+
+		// With numbers
+		{"DB2_HOST", "db2.host"},
+		{"API_V2_KEY", "api.v2.key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := normalizeKey(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeKey(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRunStoreShellStyleKeys(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	var stdout, stderr bytes.Buffer
+
+	// Set using shell-style key
+	err := runStore([]string{"set", "-g", "DATABASE_HOST", "localhost"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore set error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "set database.host") {
+		t.Errorf("expected 'set database.host', got: %s", stdout.String())
+	}
+
+	// Get using shell-style key
+	stdout.Reset()
+	stderr.Reset()
+
+	err = runStore([]string{"get", "-g", "DATABASE_HOST"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore get error: %v", err)
+	}
+
+	if strings.TrimSpace(stdout.String()) != "localhost" {
+		t.Errorf("got value = %q, want 'localhost'", strings.TrimSpace(stdout.String()))
+	}
+
+	// Get using dot notation (should return same value)
+	stdout.Reset()
+	stderr.Reset()
+
+	err = runStore([]string{"get", "-g", "database.host"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore get error: %v", err)
+	}
+
+	if strings.TrimSpace(stdout.String()) != "localhost" {
+		t.Errorf("got value = %q, want 'localhost'", strings.TrimSpace(stdout.String()))
+	}
+
+	// Delete using shell-style key
+	stdout.Reset()
+	stderr.Reset()
+
+	err = runStore([]string{"delete", "-g", "DATABASE_HOST"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore delete error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "deleted database.host") {
+		t.Errorf("expected 'deleted database.host', got: %s", stdout.String())
+	}
+}
+
+func TestRunStoreShellStyleKeyValue(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	var stdout, stderr bytes.Buffer
+
+	// Set using shell-style key=value syntax
+	err := runStore([]string{"set", "-g", "API_KEY=my-api-key"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore set error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "set api.key") {
+		t.Errorf("expected 'set api.key', got: %s", stdout.String())
+	}
+
+	// Get and verify
+	stdout.Reset()
+	err = runStore([]string{"get", "-g", "api.key"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore get error: %v", err)
+	}
+
+	if strings.TrimSpace(stdout.String()) != "my-api-key" {
+		t.Errorf("got value = %q, want 'my-api-key'", strings.TrimSpace(stdout.String()))
 	}
 }

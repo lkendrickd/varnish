@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 func TestRunExportBasic(t *testing.T) {
@@ -16,7 +18,7 @@ func TestRunExportBasic(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForExport(t, "exporttest")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("exporttest.db.host", "localhost")
 	store.Set("exporttest.db.port", "5432")
 	store.Save()
@@ -82,7 +84,7 @@ func TestRunExportMissingVarsWarning(t *testing.T) {
 	defer cleanupProject()
 
 	// Add some but not all required variables
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("exportmissing.db.host", "localhost")
 	// db.port is required but not set
 	store.Save()
@@ -142,7 +144,7 @@ func TestRunExportQuotesSpecialChars(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForExport(t, "exportquote")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("exportquote.db.password", "pass'word$pecial")
 	store.Save()
 
@@ -177,11 +179,11 @@ func TestRunExportEmptyStore(t *testing.T) {
 	}
 	defer os.RemoveAll(projectDir)
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "emptyexport")
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "emptyexport"
 	cfg.Include = []string{} // No patterns
 	cfg.Save()
@@ -212,11 +214,11 @@ func setupProjectForExport(t *testing.T, projectName string) (string, func()) {
 		t.Fatalf("failed to create project dir: %v", err)
 	}
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"db.*", "api.*"}
 	cfg.Save()
@@ -235,11 +237,11 @@ func setupProjectForExportWithRequired(t *testing.T, projectName string) (string
 		t.Fatalf("failed to create project dir: %v", err)
 	}
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = projectName
 	// Use specific keys so we can test missing vars
 	cfg.Include = []string{"db.host", "db.port"}

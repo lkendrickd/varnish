@@ -1,9 +1,4 @@
-// resolver.go combines a Store and ProjectConfig to produce environment variables.
-//
-// This file is used by:
-//   - cli/env.go: to generate .env files
-//   - cli/run.go: to inject env vars when running commands
-//   - cli/list.go: to show resolved variables
+// Package resolver combines a Store and project Config to produce environment variables.
 //
 // Resolution order (later wins):
 //  1. Store variables matching Include patterns
@@ -17,13 +12,16 @@
 // Interpolation in computed values:
 //   - ${database.host} is replaced with the value of database.host
 //   - Supports nested references to other computed values
-package domain
+package resolver
 
 import (
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/store"
 )
 
 // ResolvedVar represents a single resolved environment variable.
@@ -36,15 +34,15 @@ type ResolvedVar struct {
 
 // Resolver combines store and project config to produce env vars.
 type Resolver struct {
-	store   *Store
-	project *ProjectConfig
+	store   *store.Store
+	project *project.Config
 }
 
-// NewResolver creates a resolver with the given store and project config.
-func NewResolver(store *Store, project *ProjectConfig) *Resolver {
+// New creates a resolver with the given store and project config.
+func New(s *store.Store, p *project.Config) *Resolver {
 	return &Resolver{
-		store:   store,
-		project: project,
+		store:   s,
+		project: p,
 	}
 }
 

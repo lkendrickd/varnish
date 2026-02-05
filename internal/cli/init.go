@@ -25,14 +25,16 @@ import (
 	"strings"
 
 	"github.com/dk/varnish/internal/config"
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 func runInit(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	project := fs.String("project", "", "project name for namespacing (default: current directory name)")
-	fs.StringVar(project, "p", "", "project name (shorthand)")
+	projectFlag := fs.String("project", "", "project name for namespacing (default: current directory name)")
+	fs.StringVar(projectFlag, "p", "", "project name (shorthand)")
 	fromEnv := fs.String("from", "", "path to .env file (auto-detects example.env or .env if not specified)")
 	fs.StringVar(fromEnv, "f", "", "path to .env file (shorthand)")
 	noImport := fs.Bool("no-import", false, "don't import default values into the store")
@@ -54,13 +56,13 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Determine project name
-	projectName := *project
+	projectName := *projectFlag
 	if projectName == "" {
 		projectName = filepath.Base(cwd)
 	}
 
 	// Load registry to check if already registered
-	reg, err := domain.LoadRegistry()
+	reg, err := registry.Load()
 	if err != nil {
 		return fmt.Errorf("load registry: %w", err)
 	}
@@ -72,12 +74,12 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Check if project config already exists
-	if domain.ProjectConfigExists(projectName) && !*force {
+	if project.Exists(projectName) && !*force {
 		return fmt.Errorf("project '%s' already exists (use --force to overwrite)", projectName)
 	}
 
-	var cfg *domain.ProjectConfig
-	var vars []domain.ExampleVar
+	var cfg *project.Config
+	var vars []project.ExampleVar
 
 	// Determine .env file path
 	// Priority: explicit --from > .env > example.env
@@ -98,16 +100,16 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Parse .env file and generate config
-	vars, err = domain.ParseExampleEnv(envPath)
+	vars, err = project.ParseExampleEnv(envPath)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", envPath, err)
 	}
 
 	if len(vars) == 0 {
 		fmt.Fprintf(stderr, "warning: no variables found in %s\n", envPath)
-		cfg = domain.NewProjectConfig()
+		cfg = project.New()
 	} else {
-		cfg = domain.GenerateProjectConfig(vars)
+		cfg = project.GenerateConfig(vars)
 		fmt.Fprintf(stdout, "parsed %d variables from %s\n", len(vars), envPath)
 	}
 
@@ -131,7 +133,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 
 	// Import defaults into store if we have vars and not disabled
 	if !*noImport && len(vars) > 0 {
-		store, err := domain.LoadStore()
+		st, err := store.Load()
 		if err != nil {
 			return fmt.Errorf("load store: %w", err)
 		}
@@ -150,11 +152,11 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 		for _, v := range vars {
 			storeKey := projectName + "." + v.Key
 			if v.HasValue {
-				store.Set(storeKey, v.Default)
+				st.Set(storeKey, v.Default)
 				added++
 			} else if *sync {
 				// --sync: remove variables that have no value in .env
-				if store.Delete(storeKey) {
+				if st.Delete(storeKey) {
 					removed++
 					fmt.Fprintf(stdout, "removed %s (no value in .env)\n", v.Key)
 				}
@@ -164,9 +166,9 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 		// --sync: also remove variables NOT in .env file at all
 		if *sync {
 			prefix := projectName + "."
-			for _, key := range store.Keys() {
+			for _, key := range st.Keys() {
 				if strings.HasPrefix(key, prefix) && !shouldExist[key] {
-					store.Delete(key)
+					st.Delete(key)
 					removed++
 					// Show the key without project prefix
 					shortKey := strings.TrimPrefix(key, prefix)
@@ -176,7 +178,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 		}
 
 		if added > 0 || removed > 0 {
-			if err := store.Save(); err != nil {
+			if err := st.Save(); err != nil {
 				return fmt.Errorf("save store: %w", err)
 			}
 			if added > 0 {

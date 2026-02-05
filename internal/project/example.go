@@ -1,8 +1,5 @@
 // example.go parses example.env files to bootstrap a project config.
 //
-// This file is used by:
-//   - cli/init.go: for the --from-example flag
-//
 // Parses lines like:
 //
 //	DATABASE_HOST=${DATABASE_HOST:-localhost}
@@ -18,7 +15,7 @@
 //	DATABASE_HOST → database.host
 //	LOG_LEVEL → log_level
 //	AWS_SECRET_KEY → aws.secret_key
-package domain
+package project
 
 import (
 	"bufio"
@@ -191,10 +188,10 @@ func envNameToKey(name string) string {
 	return strings.Join(parts, ".")
 }
 
-// GenerateProjectConfig creates a ProjectConfig from parsed example vars.
+// GenerateConfig creates a Config from parsed example vars.
 // Groups related vars into glob patterns where possible.
-func GenerateProjectConfig(vars []ExampleVar) *ProjectConfig {
-	cfg := NewProjectConfig()
+func GenerateConfig(vars []ExampleVar) *Config {
+	cfg := New()
 
 	// Track prefixes to potentially group them
 	prefixCount := make(map[string]int)

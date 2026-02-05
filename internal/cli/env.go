@@ -19,7 +19,9 @@ import (
 	"strings"
 
 	"github.com/dk/varnish/internal/config"
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/resolver"
+	"github.com/dk/varnish/internal/store"
 )
 
 func runEnv(args []string, stdout, stderr io.Writer) error {
@@ -34,7 +36,7 @@ func runEnv(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Load project config
-	cfg, err := domain.LoadProjectConfig()
+	cfg, err := project.Load()
 	if err != nil {
 		return fmt.Errorf("load project config: %w", err)
 	}
@@ -43,17 +45,17 @@ func runEnv(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Load store
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
 	// Resolve variables
-	resolver := domain.NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	res := resolver.New(st, cfg)
+	vars := res.Resolve()
 
 	// Check for missing variables
-	missing := resolver.MissingVars()
+	missing := res.MissingVars()
 	if len(missing) > 0 {
 		fmt.Fprintf(stderr, "warning: missing variables in store: %s\n", strings.Join(missing, ", "))
 	}

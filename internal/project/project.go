@@ -1,10 +1,4 @@
-// project.go manages the per-project config files stored in ~/.varnish/projects/.
-//
-// This file is used by:
-//   - cli/init.go: to create a new project config
-//   - cli/env.go: to know which variables the project needs
-//   - cli/list.go: to show the project's variable requirements
-//   - domain/resolver.go: to resolve variables from store → env vars
+// Package project manages the per-project config files stored in ~/.varnish/projects/.
 //
 // Project configs are stored centrally in ~/.varnish/projects/<project>.yaml
 // instead of in the project directory. The registry maps directories to
@@ -15,35 +9,19 @@
 //   - overrides: project-specific values that override the store
 //   - mappings: rename store keys to different env var names
 //   - computed: variables built from other variables (interpolation)
-//
-// Example ~/.varnish/projects/myapp.yaml:
-//
-//	version: 1
-//	project: myapp
-//	include:
-//	  - database.*
-//	  - log_level
-//	overrides:
-//	  database.name: myproject_dev
-//	mappings:
-//	  database.url: DATABASE_URL
-//	computed:
-//	  DATABASE_URL: "postgres://${database.user}@${database.host}/${database.name}"
-//
-// The project field namespaces variables in the store. When this project
-// requests "database.host", the resolver looks up "myapp.database.host".
-package domain
+package project
 
 import (
 	"fmt"
 	"os"
 
 	"github.com/dk/varnish/internal/config"
+	"github.com/dk/varnish/internal/registry"
 	"gopkg.in/yaml.v3"
 )
 
-// ProjectConfig holds the per-project configuration.
-type ProjectConfig struct {
+// Config holds the per-project configuration.
+type Config struct {
 	Version   int               `yaml:"version"`
 	Project   string            `yaml:"project,omitempty"`
 	Include   []string          `yaml:"include,omitempty"`
@@ -52,9 +30,9 @@ type ProjectConfig struct {
 	Computed  map[string]string `yaml:"computed,omitempty"`
 }
 
-// NewProjectConfig creates an empty project config with version 1.
-func NewProjectConfig() *ProjectConfig {
-	return &ProjectConfig{
+// New creates an empty project config with version 1.
+func New() *Config {
+	return &Config{
 		Version:   1,
 		Include:   []string{},
 		Overrides: make(map[string]string),
@@ -63,33 +41,33 @@ func NewProjectConfig() *ProjectConfig {
 	}
 }
 
-// LoadProjectConfig loads the config for the current directory's project.
+// Load loads the config for the current directory's project.
 // It uses the registry to find which project the current directory belongs to,
 // then loads that project's config from ~/.varnish/projects/<project>.yaml.
 // Returns nil (not an error) if no project is registered for this directory.
-func LoadProjectConfig() (*ProjectConfig, error) {
-	reg, err := LoadRegistry()
+func Load() (*Config, error) {
+	reg, err := registry.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load registry: %w", err)
 	}
 
-	project := reg.LookupCurrent()
-	if project == "" {
+	proj := reg.LookupCurrent()
+	if proj == "" {
 		return nil, nil
 	}
 
-	return LoadProjectConfigByName(project)
+	return LoadByName(proj)
 }
 
-// LoadProjectConfigByName loads a project config by project name.
+// LoadByName loads a project config by project name.
 // Looks for ~/.varnish/projects/<project>.yaml
-func LoadProjectConfigByName(project string) (*ProjectConfig, error) {
-	path := config.ProjectConfigPathFor(project)
-	return LoadProjectConfigFrom(path)
+func LoadByName(name string) (*Config, error) {
+	path := config.ProjectConfigPathFor(name)
+	return LoadFrom(path)
 }
 
-// LoadProjectConfigFrom reads a project config from a specific path.
-func LoadProjectConfigFrom(path string) (*ProjectConfig, error) {
+// LoadFrom reads a project config from a specific path.
+func LoadFrom(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -98,7 +76,7 @@ func LoadProjectConfigFrom(path string) (*ProjectConfig, error) {
 		return nil, fmt.Errorf("read project config: %w", err)
 	}
 
-	var cfg ProjectConfig
+	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse project config: %w", err)
 	}
@@ -119,8 +97,8 @@ func LoadProjectConfigFrom(path string) (*ProjectConfig, error) {
 
 // Save writes the project config to ~/.varnish/projects/<project>.yaml.
 // The project name must be set in the config.
-func (p *ProjectConfig) Save() error {
-	if p.Project == "" {
+func (c *Config) Save() error {
+	if c.Project == "" {
 		return fmt.Errorf("project name is required")
 	}
 
@@ -129,13 +107,13 @@ func (p *ProjectConfig) Save() error {
 		return fmt.Errorf("create projects directory: %w", err)
 	}
 
-	path := config.ProjectConfigPathFor(p.Project)
-	return p.SaveTo(path)
+	path := config.ProjectConfigPathFor(c.Project)
+	return c.SaveTo(path)
 }
 
 // SaveTo writes the project config to a specific path.
-func (p *ProjectConfig) SaveTo(path string) error {
-	data, err := yaml.Marshal(p)
+func (c *Config) SaveTo(path string) error {
+	data, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("marshal project config: %w", err)
 	}
@@ -148,16 +126,16 @@ func (p *ProjectConfig) SaveTo(path string) error {
 	return nil
 }
 
-// ProjectConfigExists checks if a project config exists for the given name.
-func ProjectConfigExists(project string) bool {
-	path := config.ProjectConfigPathFor(project)
+// Exists checks if a project config exists for the given name.
+func Exists(name string) bool {
+	path := config.ProjectConfigPathFor(name)
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-// DeleteProjectConfig removes a project's config file.
-func DeleteProjectConfig(project string) error {
-	path := config.ProjectConfigPathFor(project)
+// Delete removes a project's config file.
+func Delete(name string) error {
+	path := config.ProjectConfigPathFor(name)
 	err := os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil

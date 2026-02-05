@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 func TestRunProjectHelp(t *testing.T) {
@@ -42,12 +44,12 @@ func TestRunProjectName(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	// Register the project
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "testproj")
 	reg.Save()
 
 	// Create project config
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "testproj"
 	cfg.Save()
 
@@ -77,11 +79,11 @@ func TestRunProjectNameWithPath(t *testing.T) {
 	}
 	defer os.RemoveAll(projectDir)
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "pathtest")
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "pathtest"
 	cfg.Save()
 
@@ -130,11 +132,11 @@ func TestRunProjectList(t *testing.T) {
 	defer cleanup()
 
 	// Create store with multiple projects
-	store := domain.NewStore()
-	store.Set("alpha.db.host", "localhost")
-	store.Set("alpha.db.port", "5432")
-	store.Set("beta.api.key", "secret")
-	store.Save()
+	st := store.New()
+	st.Set("alpha.db.host", "localhost")
+	st.Set("alpha.db.port", "5432")
+	st.Set("beta.api.key", "secret")
+	st.Save()
 
 	var stdout, stderr bytes.Buffer
 	err := runProject([]string{"list"}, &stdout, &stderr)
@@ -174,11 +176,11 @@ func TestRunProjectDelete(t *testing.T) {
 	defer cleanup()
 
 	// Create store with a project
-	store := domain.NewStore()
-	store.Set("deleteme.var1", "value1")
-	store.Set("deleteme.var2", "value2")
-	store.Set("keepme.var1", "value1")
-	store.Save()
+	st := store.New()
+	st.Set("deleteme.var1", "value1")
+	st.Set("deleteme.var2", "value2")
+	st.Set("keepme.var1", "value1")
+	st.Save()
 
 	var stdout, stderr bytes.Buffer
 	err := runProject([]string{"delete", "deleteme"}, &stdout, &stderr)
@@ -191,11 +193,11 @@ func TestRunProjectDelete(t *testing.T) {
 	}
 
 	// Verify deletion
-	store, _ = domain.LoadStore()
-	if _, exists := store.Get("deleteme.var1"); exists {
+	st, _ = store.Load()
+	if _, exists := st.Get("deleteme.var1"); exists {
 		t.Error("deleteme.var1 should have been deleted")
 	}
-	if _, exists := store.Get("keepme.var1"); !exists {
+	if _, exists := st.Get("keepme.var1"); !exists {
 		t.Error("keepme.var1 should still exist")
 	}
 }
@@ -204,10 +206,10 @@ func TestRunProjectDeleteDryRun(t *testing.T) {
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	store := domain.NewStore()
-	store.Set("dryrun.var1", "value1")
-	store.Set("dryrun.var2", "value2")
-	store.Save()
+	st := store.New()
+	st.Set("dryrun.var1", "value1")
+	st.Set("dryrun.var2", "value2")
+	st.Save()
 
 	var stdout, stderr bytes.Buffer
 	err := runProject([]string{"delete", "--dry-run", "dryrun"}, &stdout, &stderr)
@@ -221,8 +223,8 @@ func TestRunProjectDeleteDryRun(t *testing.T) {
 	}
 
 	// Verify NOT deleted
-	store, _ = domain.LoadStore()
-	if _, exists := store.Get("dryrun.var1"); !exists {
+	st, _ = store.Load()
+	if _, exists := st.Get("dryrun.var1"); !exists {
 		t.Error("dryrun.var1 should still exist after dry-run")
 	}
 }
@@ -272,14 +274,14 @@ func TestRunProjectListWithRegistry(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	// Register it
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "registered")
 	reg.Save()
 
 	// Add to store
-	store := domain.NewStore()
-	store.Set("registered.key", "value")
-	store.Save()
+	st := store.New()
+	st.Set("registered.key", "value")
+	st.Save()
 
 	var stdout, stderr bytes.Buffer
 	err = runProject([]string{"list"}, &stdout, &stderr)
@@ -309,18 +311,18 @@ func TestRunProjectDeleteCleansRegistry(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	// Register and create config
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "toclean")
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "toclean"
 	cfg.Save()
 
 	// Add to store
-	store := domain.NewStore()
-	store.Set("toclean.key", "value")
-	store.Save()
+	st := store.New()
+	st.Set("toclean.key", "value")
+	st.Save()
 
 	var stdout, stderr bytes.Buffer
 	err = runProject([]string{"delete", "toclean"}, &stdout, &stderr)
@@ -329,13 +331,13 @@ func TestRunProjectDeleteCleansRegistry(t *testing.T) {
 	}
 
 	// Verify registry was cleaned
-	reg, _ = domain.LoadRegistry()
+	reg, _ = registry.Load()
 	if reg.Lookup(projectDir) != "" {
 		t.Error("directory should have been unregistered")
 	}
 
 	// Verify config was deleted
-	if domain.ProjectConfigExists("toclean") {
+	if project.Exists("toclean") {
 		t.Error("project config should have been deleted")
 	}
 }
@@ -354,12 +356,12 @@ func setupProjectWithEnv(t *testing.T, projectName string) (string, func()) {
 	}
 
 	// Register project
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
 	reg.Save()
 
 	// Create config
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"test.*"}
 	cfg.Save()

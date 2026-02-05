@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/resolver"
+	"github.com/dk/varnish/internal/store"
 )
 
 func runCheck(args []string, stdout, stderr io.Writer) error {
@@ -39,7 +41,7 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 	var warnings []string
 
 	// Check 1: Load and validate project config
-	cfg, err := domain.LoadProjectConfig()
+	cfg, err := project.Load()
 	if err != nil {
 		return fmt.Errorf("invalid .varnish.yaml: %w", err)
 	}
@@ -56,15 +58,15 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Check 3: Load store
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("cannot load store: %w", err)
 	}
-	fmt.Fprintf(stdout, "✓ store loaded (%d total variables)\n", len(store.Keys()))
+	fmt.Fprintf(stdout, "✓ store loaded (%d total variables)\n", len(st.Keys()))
 
 	// Check 4: Check for missing variables
-	resolver := domain.NewResolver(store, cfg)
-	missing := resolver.MissingVars()
+	res := resolver.New(st, cfg)
+	missing := res.MissingVars()
 	if len(missing) > 0 {
 		if *strict {
 			for _, key := range missing {
@@ -81,7 +83,7 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 
 	// Check 5: Validate computed values can be interpolated
 	if len(cfg.Computed) > 0 {
-		vars := resolver.Resolve()
+		vars := res.Resolve()
 		// Build a map for interpolation check
 		resolved := make(map[string]string)
 		for _, v := range vars {

@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 func TestRunEnvDryRun(t *testing.T) {
@@ -16,7 +18,7 @@ func TestRunEnvDryRun(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForEnv(t, "envdry")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("envdry.db.host", "localhost")
 	store.Set("envdry.db.port", "5432")
 	store.Save()
@@ -50,7 +52,7 @@ func TestRunEnvWriteFile(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForEnv(t, "envwrite")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("envwrite.api.key", "secret123")
 	store.Save()
 
@@ -82,7 +84,7 @@ func TestRunEnvCustomOutput(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForEnv(t, "envcustom")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("envcustom.test.key", "value")
 	store.Save()
 
@@ -114,7 +116,7 @@ func TestRunEnvExistsNoForce(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForEnv(t, "envexists")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("envexists.key", "value")
 	store.Save()
 
@@ -142,7 +144,7 @@ func TestRunEnvForceOverwrite(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForEnv(t, "envforce")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("envforce.new.key", "newvalue")
 	store.Save()
 
@@ -252,11 +254,11 @@ func setupProjectForEnv(t *testing.T, projectName string) (string, func()) {
 		t.Fatalf("failed to create project dir: %v", err)
 	}
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"db.*", "api.*", "test.*", "key", "new.*"}
 	cfg.Save()

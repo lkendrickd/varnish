@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 func TestRunListBasic(t *testing.T) {
@@ -18,7 +20,7 @@ func TestRunListBasic(t *testing.T) {
 	defer cleanupProject()
 
 	// Add variables to store
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("listtest.test.var", "value123")
 	store.Save()
 
@@ -51,7 +53,7 @@ func TestRunListJSON(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForList(t, "listjson")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("listjson.test.var", "jsonvalue")
 	store.Save()
 
@@ -110,7 +112,7 @@ func TestRunListMissingNone(t *testing.T) {
 	defer cleanupProject()
 
 	// Add all required variables
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("nomissing.test.var", "present")
 	store.Save()
 
@@ -164,11 +166,11 @@ func TestRunListEmpty(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	// Create project with no include patterns
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "emptylist")
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "emptylist"
 	cfg.Include = []string{} // No patterns
 	cfg.Save()
@@ -223,17 +225,17 @@ func TestRunListShowsSource(t *testing.T) {
 	}
 	defer os.RemoveAll(projectDir)
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "sourcetest")
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "sourcetest"
 	cfg.Include = []string{"db.*"}
 	cfg.Overrides = map[string]string{"db.name": "override_db"}
 	cfg.Save()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("sourcetest.db.host", "localhost")
 	store.Save()
 
@@ -293,11 +295,11 @@ func setupProjectForList(t *testing.T, projectName string) (string, func()) {
 		t.Fatalf("failed to write .env: %v", err)
 	}
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"test.*"}
 	cfg.Save()

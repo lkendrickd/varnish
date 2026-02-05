@@ -27,18 +27,52 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 // detectProject returns the project name for the current directory.
 // Uses the registry to find which project this directory belongs to.
 // Returns empty string if not in a registered project directory.
 func detectProject() string {
-	reg, err := domain.LoadRegistry()
+	reg, err := registry.Load()
 	if err != nil {
 		return ""
 	}
 	return reg.LookupCurrent()
+}
+
+// normalizeKey converts shell-style variable names to dot notation.
+// DATABASE_HOST → database.host
+// API_KEY → api.key
+// If the key is already in dot notation or mixed case, it's returned unchanged.
+func normalizeKey(key string) string {
+	// Check if this looks like a shell-style variable (UPPER_SNAKE_CASE)
+	// Must contain only uppercase letters, digits, and underscores
+	isShellStyle := true
+	hasUnderscore := false
+	for _, r := range key {
+		if r == '_' {
+			hasUnderscore = true
+		} else if r >= 'A' && r <= 'Z' {
+			// uppercase letter - OK
+		} else if r >= '0' && r <= '9' {
+			// digit - OK
+		} else {
+			// lowercase letter, dot, or other character - not shell style
+			isShellStyle = false
+			break
+		}
+	}
+
+	// Only convert if it's shell-style with at least one underscore
+	if !isShellStyle || !hasUnderscore {
+		return key
+	}
+
+	// Convert: lowercase and replace underscores with dots
+	return strings.ToLower(strings.ReplaceAll(key, "_", "."))
 }
 
 func runStore(args []string, stdout, stderr io.Writer) error {
@@ -83,6 +117,9 @@ Subcommands:
   delete, rm <key>    Remove a variable from the store
   import <file>       Import variables from a .env file
 
+Keys can use either dot notation (db.host) or shell-style (DATABASE_HOST).
+Shell-style keys are automatically converted: DATABASE_HOST → database.host
+
 Flags:
   -p, --project <name>  Namespace under project (auto-detected from .varnish.yaml)
   -g, --global          Bypass project auto-detection, use global namespace
@@ -91,9 +128,10 @@ When in a directory with .varnish.yaml, the project is auto-detected.
 Use --global to set/get variables without a project prefix.
 
 Examples:
-  varnish store set db.host localhost      # uses project from .varnish.yaml
-  varnish store set db.host=localhost      # same, using key=value syntax
-  varnish store set db.host localhost --global  # no project prefix
+  varnish store set db.host localhost      # dot notation
+  varnish store set DATABASE_HOST localhost # shell-style (same as above)
+  varnish store set db.host=localhost      # key=value syntax
+  varnish store get DATABASE_HOST          # get using shell-style key
   varnish store list                       # shows current project's vars
   varnish store list --global              # shows all vars`)
 }
@@ -104,8 +142,8 @@ func runStoreSet(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("store set", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fromStdin := fs.Bool("stdin", false, "read value from stdin")
-	project := fs.String("project", "", "namespace under project name")
-	fs.StringVar(project, "p", "", "namespace under project name (shorthand)")
+	projectFlag := fs.String("project", "", "namespace under project name")
+	fs.StringVar(projectFlag, "p", "", "namespace under project name (shorthand)")
 	global := fs.Bool("global", false, "bypass project auto-detection")
 	fs.BoolVar(global, "g", false, "bypass project auto-detection (shorthand)")
 
@@ -124,18 +162,18 @@ func runStoreSet(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Auto-detect project if not specified and not global
-	if *project == "" && !*global {
-		*project = detectProject()
+	if *projectFlag == "" && !*global {
+		*projectFlag = detectProject()
 	}
 
 	var key, value string
 
 	// Check if first arg contains = (key=value syntax)
 	if idx := strings.Index(remaining[0], "="); idx > 0 {
-		key = remaining[0][:idx]
+		key = normalizeKey(remaining[0][:idx])
 		value = remaining[0][idx+1:]
 	} else {
-		key = remaining[0]
+		key = normalizeKey(remaining[0])
 
 		if *fromStdin {
 			// Read value from stdin (trim trailing newline)
@@ -159,27 +197,27 @@ func runStoreSet(args []string, stdout, stderr io.Writer) error {
 
 	// Apply project prefix
 	storeKey := key
-	if *project != "" {
-		storeKey = *project + "." + key
+	if *projectFlag != "" {
+		storeKey = *projectFlag + "." + key
 	}
 
 	// Load, modify, save
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
-	store.Set(storeKey, value)
+	st.Set(storeKey, value)
 
-	if err := store.Save(); err != nil {
+	if err := st.Save(); err != nil {
 		return fmt.Errorf("save store: %w", err)
 	}
 
 	fmt.Fprintf(stdout, "set %s\n", storeKey)
 
 	// If we have a project, ensure the key pattern is in the project's include list
-	if *project != "" {
-		if err := ensureIncludePattern(*project, key, stdout); err != nil {
+	if *projectFlag != "" {
+		if err := ensureIncludePattern(*projectFlag, key, stdout); err != nil {
 			// Non-fatal - warn but don't fail
 			fmt.Fprintf(stderr, "warning: could not update project config: %v\n", err)
 		}
@@ -192,8 +230,8 @@ func runStoreSet(args []string, stdout, stderr io.Writer) error {
 func runStoreGet(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("store get", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	project := fs.String("project", "", "namespace under project name")
-	fs.StringVar(project, "p", "", "namespace under project name (shorthand)")
+	projectFlag := fs.String("project", "", "namespace under project name")
+	fs.StringVar(projectFlag, "p", "", "namespace under project name (shorthand)")
 	global := fs.Bool("global", false, "bypass project auto-detection")
 	fs.BoolVar(global, "g", false, "bypass project auto-detection (shorthand)")
 
@@ -206,25 +244,25 @@ func runStoreGet(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("expected exactly one key")
 	}
 
-	key := fs.Arg(0)
+	key := normalizeKey(fs.Arg(0))
 
 	// Auto-detect project if not specified and not global
-	if *project == "" && !*global {
-		*project = detectProject()
+	if *projectFlag == "" && !*global {
+		*projectFlag = detectProject()
 	}
 
 	// Apply project prefix
 	storeKey := key
-	if *project != "" {
-		storeKey = *project + "." + key
+	if *projectFlag != "" {
+		storeKey = *projectFlag + "." + key
 	}
 
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
-	value, ok := store.Get(storeKey)
+	value, ok := st.Get(storeKey)
 	if !ok {
 		return fmt.Errorf("key not found: %s", storeKey)
 	}
@@ -238,8 +276,8 @@ func runStoreList(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("store list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	pattern := fs.String("pattern", "", "glob pattern to filter keys")
-	project := fs.String("project", "", "filter to project namespace")
-	fs.StringVar(project, "p", "", "filter to project namespace (shorthand)")
+	projectFlag := fs.String("project", "", "filter to project namespace")
+	fs.StringVar(projectFlag, "p", "", "filter to project namespace (shorthand)")
 	global := fs.Bool("global", false, "show all variables (bypass project auto-detection)")
 	fs.BoolVar(global, "g", false, "show all variables (shorthand)")
 	jsonOutput := fs.Bool("json", false, "output as JSON")
@@ -249,16 +287,16 @@ func runStoreList(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Auto-detect project if not specified and not global
-	if *project == "" && !*global {
-		*project = detectProject()
+	if *projectFlag == "" && !*global {
+		*projectFlag = detectProject()
 	}
 
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
-	keys := store.Keys()
+	keys := st.Keys()
 	if len(keys) == 0 {
 		if *jsonOutput {
 			return json.NewEncoder(stdout).Encode(map[string]interface{}{
@@ -271,10 +309,10 @@ func runStoreList(args []string, stdout, stderr io.Writer) error {
 
 	// Build effective pattern
 	effectivePattern := *pattern
-	if *project != "" && effectivePattern == "" {
-		effectivePattern = *project + ".*"
-	} else if *project != "" {
-		effectivePattern = *project + "." + effectivePattern
+	if *projectFlag != "" && effectivePattern == "" {
+		effectivePattern = *projectFlag + ".*"
+	} else if *projectFlag != "" {
+		effectivePattern = *projectFlag + "." + effectivePattern
 	}
 
 	// Collect matching variables
@@ -284,7 +322,7 @@ func runStoreList(args []string, stdout, stderr io.Writer) error {
 		if effectivePattern != "" && !matchGlob(effectivePattern, key) {
 			continue
 		}
-		value, _ := store.Get(key)
+		value, _ := st.Get(key)
 		variables[key] = value
 	}
 
@@ -307,8 +345,8 @@ func runStoreList(args []string, stdout, stderr io.Writer) error {
 func runStoreDelete(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("store delete", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	project := fs.String("project", "", "namespace under project name")
-	fs.StringVar(project, "p", "", "namespace under project name (shorthand)")
+	projectFlag := fs.String("project", "", "namespace under project name")
+	fs.StringVar(projectFlag, "p", "", "namespace under project name (shorthand)")
 	global := fs.Bool("global", false, "bypass project auto-detection")
 	fs.BoolVar(global, "g", false, "bypass project auto-detection (shorthand)")
 
@@ -321,29 +359,29 @@ func runStoreDelete(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("expected exactly one key")
 	}
 
-	key := fs.Arg(0)
+	key := normalizeKey(fs.Arg(0))
 
 	// Auto-detect project if not specified and not global
-	if *project == "" && !*global {
-		*project = detectProject()
+	if *projectFlag == "" && !*global {
+		*projectFlag = detectProject()
 	}
 
 	// Apply project prefix
 	storeKey := key
-	if *project != "" {
-		storeKey = *project + "." + key
+	if *projectFlag != "" {
+		storeKey = *projectFlag + "." + key
 	}
 
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
-	if !store.Delete(storeKey) {
+	if !st.Delete(storeKey) {
 		return fmt.Errorf("key not found: %s", storeKey)
 	}
 
-	if err := store.Save(); err != nil {
+	if err := st.Save(); err != nil {
 		return fmt.Errorf("save store: %w", err)
 	}
 
@@ -355,8 +393,8 @@ func runStoreDelete(args []string, stdout, stderr io.Writer) error {
 func runStoreImport(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("store import", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	project := fs.String("project", "", "namespace under project name")
-	fs.StringVar(project, "p", "", "namespace under project name (shorthand)")
+	projectFlag := fs.String("project", "", "namespace under project name")
+	fs.StringVar(projectFlag, "p", "", "namespace under project name (shorthand)")
 	global := fs.Bool("global", false, "bypass project auto-detection")
 	fs.BoolVar(global, "g", false, "bypass project auto-detection (shorthand)")
 
@@ -365,8 +403,8 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Auto-detect project if not specified and not global
-	if *project == "" && !*global {
-		*project = detectProject()
+	if *projectFlag == "" && !*global {
+		*projectFlag = detectProject()
 	}
 
 	if fs.NArg() != 1 {
@@ -377,7 +415,7 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 	filePath := fs.Arg(0)
 
 	// Parse the .env file using our example parser
-	vars, err := domain.ParseExampleEnv(filePath)
+	vars, err := project.ParseExampleEnv(filePath)
 	if err != nil {
 		return fmt.Errorf("parse file: %w", err)
 	}
@@ -388,7 +426,7 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Load store
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
@@ -399,10 +437,10 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 		if v.HasValue {
 			// Apply project prefix
 			storeKey := v.Key
-			if *project != "" {
-				storeKey = *project + "." + v.Key
+			if *projectFlag != "" {
+				storeKey = *projectFlag + "." + v.Key
 			}
-			store.Set(storeKey, v.Default)
+			st.Set(storeKey, v.Default)
 			count++
 			fmt.Fprintf(stdout, "imported %s → %s\n", v.EnvName, storeKey)
 		}
@@ -413,7 +451,7 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 
-	if err := store.Save(); err != nil {
+	if err := st.Save(); err != nil {
 		return fmt.Errorf("save store: %w", err)
 	}
 
@@ -448,40 +486,40 @@ func matchGlob(pattern, s string) bool {
 
 // ensureIncludePattern adds a pattern to the project config if the key isn't already covered.
 // For example, if key is "db.user", it will add "db.*" if not already included.
-func ensureIncludePattern(project, key string, stdout io.Writer) error {
-	cfg, err := domain.LoadProjectConfigByName(project)
+func ensureIncludePattern(projectName, key string, stdout io.Writer) error {
+	cfg, err := project.LoadByName(projectName)
 	if err != nil {
 		return err
 	}
 
 	// Check if key is already matched by existing includes
-	for _, pattern := range cfg.Include {
-		if matchGlob(pattern, key) {
+	for _, pat := range cfg.Include {
+		if matchGlob(pat, key) {
 			return nil // Already covered
 		}
 	}
 
 	// Generate pattern for this key
 	// For "db.user" -> "db.*", for "simple" -> "simple"
-	pattern := key
+	pat := key
 	if idx := strings.Index(key, "."); idx > 0 {
-		pattern = key[:idx] + ".*"
+		pat = key[:idx] + ".*"
 	}
 
 	// Check if this pattern already exists
 	for _, p := range cfg.Include {
-		if p == pattern {
+		if p == pat {
 			return nil // Pattern already exists
 		}
 	}
 
 	// Add the new pattern
-	cfg.Include = append(cfg.Include, pattern)
+	cfg.Include = append(cfg.Include, pat)
 
 	if err := cfg.Save(); err != nil {
 		return err
 	}
 
-	fmt.Fprintf(stdout, "added '%s' to project includes\n", pattern)
+	fmt.Fprintf(stdout, "added '%s' to project includes\n", pat)
 	return nil
 }

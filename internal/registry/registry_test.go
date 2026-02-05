@@ -1,4 +1,4 @@
-package domain
+package registry
 
 import (
 	"os"
@@ -6,28 +6,21 @@ import (
 	"testing"
 )
 
-func TestLoadRegistryEmpty(t *testing.T) {
-	// Create temp directory with no registry file
-	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
+func TestNew(t *testing.T) {
+	reg := New()
+
+	if reg.Version != 1 {
+		t.Errorf("expected version 1, got %d", reg.Version)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	// Test that a non-existent registry file path doesn't exist
-	regPath := filepath.Join(tmpDir, "registry.yaml")
-
-	// File doesn't exist - verify
-	_, err = os.Stat(regPath)
-	if !os.IsNotExist(err) {
-		t.Fatal("expected registry file to not exist")
+	if reg.Projects == nil {
+		t.Error("expected Projects to be initialized")
 	}
-
-	// Note: We can't test LoadRegistry directly without mocking config.RegistryPath()
-	// This test verifies the expected initial state
+	if len(reg.Projects) != 0 {
+		t.Errorf("expected empty Projects, got %d", len(reg.Projects))
+	}
 }
 
-func TestRegistryRegisterLookup(t *testing.T) {
+func TestRegisterLookup(t *testing.T) {
 	tests := []struct {
 		name        string
 		registerDir string
@@ -60,12 +53,7 @@ func TestRegistryRegisterLookup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Fresh registry for each test
-			reg := &Registry{
-				Version:  1,
-				Projects: make(map[string]string),
-			}
-
+			reg := New()
 			reg.Register(tt.registerDir, tt.project)
 			got := reg.Lookup(tt.lookupDir)
 
@@ -76,12 +64,8 @@ func TestRegistryRegisterLookup(t *testing.T) {
 	}
 }
 
-func TestRegistryUnregister(t *testing.T) {
-	reg := &Registry{
-		Version:  1,
-		Projects: make(map[string]string),
-	}
-
+func TestUnregister(t *testing.T) {
+	reg := New()
 	reg.Register("/home/user/myapp", "myapp")
 	reg.Register("/home/user/otherapp", "otherapp")
 
@@ -104,12 +88,8 @@ func TestRegistryUnregister(t *testing.T) {
 	}
 }
 
-func TestRegistryProjectDirs(t *testing.T) {
-	reg := &Registry{
-		Version:  1,
-		Projects: make(map[string]string),
-	}
-
+func TestProjectDirs(t *testing.T) {
+	reg := New()
 	reg.Register("/home/user/myapp", "myapp")
 	reg.Register("/home/user/myapp-v2", "myapp")
 	reg.Register("/home/user/otherapp", "otherapp")
@@ -129,12 +109,8 @@ func TestRegistryProjectDirs(t *testing.T) {
 	}
 }
 
-func TestRegistryAllProjects(t *testing.T) {
-	reg := &Registry{
-		Version:  1,
-		Projects: make(map[string]string),
-	}
-
+func TestAllProjects(t *testing.T) {
+	reg := New()
 	reg.Register("/path/a", "zebra")
 	reg.Register("/path/b", "alpha")
 	reg.Register("/path/c", "alpha") // duplicate project
@@ -155,7 +131,7 @@ func TestRegistryAllProjects(t *testing.T) {
 	}
 }
 
-func TestRegistrySaveLoad(t *testing.T) {
+func TestSaveLoad(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -165,10 +141,7 @@ func TestRegistrySaveLoad(t *testing.T) {
 	regPath := filepath.Join(tmpDir, "registry.yaml")
 
 	// Create and save
-	reg := &Registry{
-		Version:  1,
-		Projects: make(map[string]string),
-	}
+	reg := New()
 	reg.Register("/home/user/myapp", "myapp")
 	reg.Register("/home/user/otherapp", "otherapp")
 
@@ -192,13 +165,8 @@ projects:
 	}
 }
 
-func TestRegistryLookupParentDirs(t *testing.T) {
-	reg := &Registry{
-		Version:  1,
-		Projects: make(map[string]string),
-	}
-
-	// Register a project at a deep path
+func TestLookupParentDirs(t *testing.T) {
+	reg := New()
 	reg.Register("/home/user/projects/myapp", "myapp")
 
 	// Lookup from deeper subdirectories should find the project

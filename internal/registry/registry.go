@@ -1,13 +1,9 @@
-// registry.go manages the mapping of directories to project names.
-//
-// This file is used by:
-//   - domain/project.go: to find which project a directory belongs to
-//   - cli/init.go: to register a directory with a project
+// Package registry manages the mapping of directories to project names.
 //
 // The registry lives at ~/.varnish/registry.yaml and maps absolute
 // directory paths to project names. This allows varnish to know which
 // project config to use based on the current working directory.
-package domain
+package registry
 
 import (
 	"os"
@@ -24,17 +20,22 @@ type Registry struct {
 	Projects map[string]string `yaml:"projects"` // dir path -> project name
 }
 
-// LoadRegistry loads the registry from ~/.varnish/registry.yaml.
+// New creates an empty registry with version 1.
+func New() *Registry {
+	return &Registry{
+		Version:  1,
+		Projects: make(map[string]string),
+	}
+}
+
+// Load loads the registry from ~/.varnish/registry.yaml.
 // Returns an empty registry if the file doesn't exist.
-func LoadRegistry() (*Registry, error) {
+func Load() (*Registry, error) {
 	path := config.RegistryPath()
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &Registry{
-			Version:  1,
-			Projects: make(map[string]string),
-		}, nil
+		return New(), nil
 	}
 	if err != nil {
 		return nil, err

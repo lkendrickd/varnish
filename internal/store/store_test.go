@@ -1,4 +1,4 @@
-package domain
+package store
 
 import (
 	"os"
@@ -6,21 +6,21 @@ import (
 	"testing"
 )
 
-func TestNewStore(t *testing.T) {
-	store := NewStore()
+func TestNew(t *testing.T) {
+	s := New()
 
-	if store.Version != 1 {
-		t.Errorf("expected version 1, got %d", store.Version)
+	if s.Version != 1 {
+		t.Errorf("expected version 1, got %d", s.Version)
 	}
-	if store.Variables == nil {
+	if s.Variables == nil {
 		t.Error("expected Variables to be initialized")
 	}
-	if len(store.Variables) != 0 {
-		t.Errorf("expected empty Variables, got %d", len(store.Variables))
+	if len(s.Variables) != 0 {
+		t.Errorf("expected empty Variables, got %d", len(s.Variables))
 	}
 }
 
-func TestStoreSetGet(t *testing.T) {
+func TestSetGet(t *testing.T) {
 	tests := []struct {
 		name    string
 		key     string
@@ -60,10 +60,10 @@ func TestStoreSetGet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := NewStore()
-			store.Set(tt.key, tt.value)
+			s := New()
+			s.Set(tt.key, tt.value)
 
-			got, ok := store.Get(tt.key)
+			got, ok := s.Get(tt.key)
 			if ok != tt.wantOK {
 				t.Errorf("Get() ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -74,17 +74,17 @@ func TestStoreSetGet(t *testing.T) {
 	}
 }
 
-func TestStoreGetNotFound(t *testing.T) {
-	store := NewStore()
-	store.Set("exists", "value")
+func TestGetNotFound(t *testing.T) {
+	s := New()
+	s.Set("exists", "value")
 
-	_, ok := store.Get("notexists")
+	_, ok := s.Get("notexists")
 	if ok {
 		t.Error("expected ok=false for non-existent key")
 	}
 }
 
-func TestStoreDelete(t *testing.T) {
+func TestDelete(t *testing.T) {
 	tests := []struct {
 		name       string
 		setupKeys  map[string]string
@@ -117,29 +117,29 @@ func TestStoreDelete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := NewStore()
+			s := New()
 			for k, v := range tt.setupKeys {
-				store.Set(k, v)
+				s.Set(k, v)
 			}
 
-			result := store.Delete(tt.deleteKey)
+			result := s.Delete(tt.deleteKey)
 			if result != tt.wantResult {
 				t.Errorf("Delete() = %v, want %v", result, tt.wantResult)
 			}
-			if len(store.Keys()) != tt.wantKeys {
-				t.Errorf("Keys() len = %d, want %d", len(store.Keys()), tt.wantKeys)
+			if len(s.Keys()) != tt.wantKeys {
+				t.Errorf("Keys() len = %d, want %d", len(s.Keys()), tt.wantKeys)
 			}
 		})
 	}
 }
 
-func TestStoreKeys(t *testing.T) {
-	store := NewStore()
-	store.Set("zebra", "1")
-	store.Set("alpha", "2")
-	store.Set("middle", "3")
+func TestKeys(t *testing.T) {
+	s := New()
+	s.Set("zebra", "1")
+	s.Set("alpha", "2")
+	s.Set("middle", "3")
 
-	keys := store.Keys()
+	keys := s.Keys()
 
 	if len(keys) != 3 {
 		t.Fatalf("expected 3 keys, got %d", len(keys))
@@ -154,7 +154,7 @@ func TestStoreKeys(t *testing.T) {
 	}
 }
 
-func TestStoreSaveLoad(t *testing.T) {
+func TestSaveLoad(t *testing.T) {
 	// Create temp directory
 	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
 	if err != nil {
@@ -165,18 +165,18 @@ func TestStoreSaveLoad(t *testing.T) {
 	storePath := filepath.Join(tmpDir, "store.yaml")
 
 	// Create and save store
-	store := NewStore()
-	store.Set("project.db.host", "localhost")
-	store.Set("project.db.port", "5432")
+	s := New()
+	s.Set("project.db.host", "localhost")
+	s.Set("project.db.port", "5432")
 
-	if err := store.SaveTo(storePath); err != nil {
+	if err := s.SaveTo(storePath); err != nil {
 		t.Fatalf("SaveTo() error: %v", err)
 	}
 
 	// Load store
-	loaded, err := LoadStoreFrom(storePath)
+	loaded, err := LoadFrom(storePath)
 	if err != nil {
-		t.Fatalf("LoadStoreFrom() error: %v", err)
+		t.Fatalf("LoadFrom() error: %v", err)
 	}
 
 	// Verify
@@ -195,24 +195,24 @@ func TestStoreSaveLoad(t *testing.T) {
 	}
 }
 
-func TestLoadStoreFromNotExist(t *testing.T) {
-	_, err := LoadStoreFrom("/nonexistent/path/store.yaml")
+func TestLoadFromNotExist(t *testing.T) {
+	_, err := LoadFrom("/nonexistent/path/store.yaml")
 	if err == nil {
 		t.Error("expected error for non-existent file")
 	}
 }
 
-func TestStoreOverwrite(t *testing.T) {
-	store := NewStore()
-	store.Set("key", "original")
+func TestOverwrite(t *testing.T) {
+	s := New()
+	s.Set("key", "original")
 
-	val, _ := store.Get("key")
+	val, _ := s.Get("key")
 	if val != "original" {
 		t.Errorf("initial value = %q, want 'original'", val)
 	}
 
-	store.Set("key", "updated")
-	val, _ = store.Get("key")
+	s.Set("key", "updated")
+	val, _ = s.Get("key")
 	if val != "updated" {
 		t.Errorf("updated value = %q, want 'updated'", val)
 	}

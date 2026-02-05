@@ -1,4 +1,4 @@
-package domain
+package project
 
 import (
 	"os"
@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestNewProjectConfig(t *testing.T) {
-	cfg := NewProjectConfig()
+func TestNew(t *testing.T) {
+	cfg := New()
 
 	if cfg.Version != 1 {
 		t.Errorf("expected version 1, got %d", cfg.Version)
@@ -26,7 +26,7 @@ func TestNewProjectConfig(t *testing.T) {
 	}
 }
 
-func TestProjectConfigSaveLoad(t *testing.T) {
+func TestSaveLoad(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -36,7 +36,7 @@ func TestProjectConfigSaveLoad(t *testing.T) {
 	cfgPath := filepath.Join(tmpDir, "project.yaml")
 
 	// Create config
-	cfg := NewProjectConfig()
+	cfg := New()
 	cfg.Project = "testproject"
 	cfg.Include = []string{"database.*", "api.*"}
 	cfg.Overrides = map[string]string{"database.name": "testdb"}
@@ -49,9 +49,9 @@ func TestProjectConfigSaveLoad(t *testing.T) {
 	}
 
 	// Load
-	loaded, err := LoadProjectConfigFrom(cfgPath)
+	loaded, err := LoadFrom(cfgPath)
 	if err != nil {
-		t.Fatalf("LoadProjectConfigFrom() error: %v", err)
+		t.Fatalf("LoadFrom() error: %v", err)
 	}
 
 	// Verify
@@ -78,15 +78,15 @@ func TestProjectConfigSaveLoad(t *testing.T) {
 	}
 }
 
-func TestLoadProjectConfigFromNotExist(t *testing.T) {
-	_, err := LoadProjectConfigFrom("/nonexistent/path/config.yaml")
+func TestLoadFromNotExist(t *testing.T) {
+	_, err := LoadFrom("/nonexistent/path/config.yaml")
 	if err == nil {
 		t.Error("expected error for non-existent file")
 	}
 }
 
-func TestProjectConfigSaveRequiresProject(t *testing.T) {
-	cfg := NewProjectConfig()
+func TestSaveRequiresProject(t *testing.T) {
+	cfg := New()
 	// Don't set Project name
 
 	err := cfg.Save()
@@ -95,31 +95,7 @@ func TestProjectConfigSaveRequiresProject(t *testing.T) {
 	}
 }
 
-func TestProjectConfigExists(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Create a projects subdirectory to simulate ~/.varnish/projects/
-	projectsDir := filepath.Join(tmpDir, "projects")
-	if err := os.MkdirAll(projectsDir, 0700); err != nil {
-		t.Fatalf("failed to create projects dir: %v", err)
-	}
-
-	// Create a test config file
-	testConfig := filepath.Join(projectsDir, "testproject.yaml")
-	if err := os.WriteFile(testConfig, []byte("version: 1\n"), 0644); err != nil {
-		t.Fatalf("failed to create test config: %v", err)
-	}
-
-	// Note: ProjectConfigExists uses config.ProjectConfigPathFor which depends
-	// on the actual home directory. For a proper test, we'd need to mock the
-	// config package. This test verifies the basic file existence logic.
-}
-
-func TestLoadProjectConfigFromInvalidYAML(t *testing.T) {
+func TestLoadFromInvalidYAML(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -131,13 +107,13 @@ func TestLoadProjectConfigFromInvalidYAML(t *testing.T) {
 		t.Fatalf("failed to write invalid yaml: %v", err)
 	}
 
-	_, err = LoadProjectConfigFrom(cfgPath)
+	_, err = LoadFrom(cfgPath)
 	if err == nil {
 		t.Error("expected error for invalid YAML")
 	}
 }
 
-func TestProjectConfigMapsInitialized(t *testing.T) {
+func TestMapsInitialized(t *testing.T) {
 	// Test that loading a minimal config initializes all maps
 	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
 	if err != nil {
@@ -151,9 +127,9 @@ func TestProjectConfigMapsInitialized(t *testing.T) {
 		t.Fatalf("failed to write minimal yaml: %v", err)
 	}
 
-	loaded, err := LoadProjectConfigFrom(cfgPath)
+	loaded, err := LoadFrom(cfgPath)
 	if err != nil {
-		t.Fatalf("LoadProjectConfigFrom() error: %v", err)
+		t.Fatalf("LoadFrom() error: %v", err)
 	}
 
 	// All maps should be initialized (not nil)
@@ -165,33 +141,5 @@ func TestProjectConfigMapsInitialized(t *testing.T) {
 	}
 	if loaded.Computed == nil {
 		t.Error("Computed should be initialized")
-	}
-}
-
-func TestDeleteProjectConfig(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	cfgPath := filepath.Join(tmpDir, "todelete.yaml")
-	if err := os.WriteFile(cfgPath, []byte("version: 1\n"), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
-
-	// Verify file exists
-	if _, err := os.Stat(cfgPath); err != nil {
-		t.Fatalf("expected file to exist: %v", err)
-	}
-
-	// Delete using os.Remove directly (since DeleteProjectConfig uses config paths)
-	if err := os.Remove(cfgPath); err != nil {
-		t.Fatalf("failed to delete: %v", err)
-	}
-
-	// Verify deleted
-	if _, err := os.Stat(cfgPath); !os.IsNotExist(err) {
-		t.Error("expected file to be deleted")
 	}
 }

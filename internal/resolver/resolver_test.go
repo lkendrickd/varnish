@@ -1,32 +1,35 @@
-package domain
+package resolver
 
 import (
 	"testing"
+
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/store"
 )
 
-func TestNewResolver(t *testing.T) {
-	store := NewStore()
-	cfg := NewProjectConfig()
+func TestNew(t *testing.T) {
+	s := store.New()
+	cfg := project.New()
 	cfg.Project = "test"
 
-	resolver := NewResolver(store, cfg)
+	r := New(s, cfg)
 
-	if resolver == nil {
+	if r == nil {
 		t.Fatal("expected non-nil resolver")
 	}
 }
 
-func TestResolverResolveBasic(t *testing.T) {
-	store := NewStore()
-	store.Set("myapp.database.host", "localhost")
-	store.Set("myapp.database.port", "5432")
+func TestResolveBasic(t *testing.T) {
+	s := store.New()
+	s.Set("myapp.database.host", "localhost")
+	s.Set("myapp.database.port", "5432")
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "myapp"
 	cfg.Include = []string{"database.*"}
 
-	resolver := NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	r := New(s, cfg)
+	vars := r.Resolve()
 
 	if len(vars) != 2 {
 		t.Fatalf("expected 2 vars, got %d", len(vars))
@@ -58,20 +61,20 @@ func TestResolverResolveBasic(t *testing.T) {
 	}
 }
 
-func TestResolverResolveWithOverrides(t *testing.T) {
-	store := NewStore()
-	store.Set("myapp.database.host", "localhost")
-	store.Set("myapp.database.name", "production_db")
+func TestResolveWithOverrides(t *testing.T) {
+	s := store.New()
+	s.Set("myapp.database.host", "localhost")
+	s.Set("myapp.database.name", "production_db")
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "myapp"
 	cfg.Include = []string{"database.*"}
 	cfg.Overrides = map[string]string{
 		"database.name": "dev_db", // Override the store value
 	}
 
-	resolver := NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	r := New(s, cfg)
+	vars := r.Resolve()
 
 	varMap := make(map[string]ResolvedVar)
 	for _, v := range vars {
@@ -90,19 +93,19 @@ func TestResolverResolveWithOverrides(t *testing.T) {
 	}
 }
 
-func TestResolverResolveWithMappings(t *testing.T) {
-	store := NewStore()
-	store.Set("myapp.database.url", "postgres://localhost/db")
+func TestResolveWithMappings(t *testing.T) {
+	s := store.New()
+	s.Set("myapp.database.url", "postgres://localhost/db")
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "myapp"
 	cfg.Include = []string{"database.*"}
 	cfg.Mappings = map[string]string{
 		"database.url": "DB_CONNECTION_STRING", // Custom env var name
 	}
 
-	resolver := NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	r := New(s, cfg)
+	vars := r.Resolve()
 
 	if len(vars) != 1 {
 		t.Fatalf("expected 1 var, got %d", len(vars))
@@ -113,21 +116,21 @@ func TestResolverResolveWithMappings(t *testing.T) {
 	}
 }
 
-func TestResolverResolveWithComputed(t *testing.T) {
-	store := NewStore()
-	store.Set("myapp.database.host", "localhost")
-	store.Set("myapp.database.port", "5432")
-	store.Set("myapp.database.name", "mydb")
+func TestResolveWithComputed(t *testing.T) {
+	s := store.New()
+	s.Set("myapp.database.host", "localhost")
+	s.Set("myapp.database.port", "5432")
+	s.Set("myapp.database.name", "mydb")
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "myapp"
 	cfg.Include = []string{"database.*"}
 	cfg.Computed = map[string]string{
 		"DATABASE_URL": "postgres://${database.host}:${database.port}/${database.name}",
 	}
 
-	resolver := NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	r := New(s, cfg)
+	vars := r.Resolve()
 
 	varMap := make(map[string]ResolvedVar)
 	for _, v := range vars {
@@ -147,17 +150,17 @@ func TestResolverResolveWithComputed(t *testing.T) {
 	}
 }
 
-func TestResolverMissingVars(t *testing.T) {
-	store := NewStore()
-	store.Set("myapp.database.host", "localhost")
+func TestMissingVars(t *testing.T) {
+	s := store.New()
+	s.Set("myapp.database.host", "localhost")
 	// Note: database.port is NOT in the store
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "myapp"
 	cfg.Include = []string{"database.host", "database.port"}
 
-	resolver := NewResolver(store, cfg)
-	missing := resolver.MissingVars()
+	r := New(s, cfg)
+	missing := r.MissingVars()
 
 	// database.port should be missing
 	found := false
@@ -173,16 +176,16 @@ func TestResolverMissingVars(t *testing.T) {
 	}
 }
 
-func TestResolverEmptyProject(t *testing.T) {
-	store := NewStore()
-	store.Set("database.host", "localhost") // No project prefix
+func TestEmptyProject(t *testing.T) {
+	s := store.New()
+	s.Set("database.host", "localhost") // No project prefix
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "" // Empty project
 	cfg.Include = []string{"database.*"}
 
-	resolver := NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	r := New(s, cfg)
+	vars := r.Resolve()
 
 	// Should resolve without project prefix
 	if len(vars) != 1 {
@@ -190,29 +193,29 @@ func TestResolverEmptyProject(t *testing.T) {
 	}
 }
 
-func TestResolverMultipleIncludePatterns(t *testing.T) {
-	store := NewStore()
-	store.Set("myapp.database.host", "localhost")
-	store.Set("myapp.cache.host", "redis")
-	store.Set("myapp.api.key", "secret")
+func TestMultipleIncludePatterns(t *testing.T) {
+	s := store.New()
+	s.Set("myapp.database.host", "localhost")
+	s.Set("myapp.cache.host", "redis")
+	s.Set("myapp.api.key", "secret")
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "myapp"
 	cfg.Include = []string{"database.*", "cache.*", "api.*"}
 
-	resolver := NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	r := New(s, cfg)
+	vars := r.Resolve()
 
 	if len(vars) != 3 {
 		t.Errorf("expected 3 vars, got %d", len(vars))
 	}
 }
 
-func TestResolverKeyToEnvName(t *testing.T) {
+func TestKeyToEnvName(t *testing.T) {
 	// Create a minimal resolver to test the method
-	store := NewStore()
-	cfg := NewProjectConfig()
-	resolver := NewResolver(store, cfg)
+	s := store.New()
+	cfg := project.New()
+	r := New(s, cfg)
 
 	tests := []struct {
 		key  string
@@ -228,9 +231,9 @@ func TestResolverKeyToEnvName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
 			// We test indirectly through Resolve since keyToEnvName is unexported
-			store.Set(tt.key, "testvalue")
+			s.Set(tt.key, "testvalue")
 			cfg.Include = []string{tt.key}
-			vars := resolver.Resolve()
+			vars := r.Resolve()
 
 			found := false
 			for _, v := range vars {
@@ -246,19 +249,19 @@ func TestResolverKeyToEnvName(t *testing.T) {
 	}
 }
 
-func TestResolverGlobMatching(t *testing.T) {
-	store := NewStore()
-	store.Set("myapp.database.host", "localhost")
-	store.Set("myapp.database.port", "5432")
-	store.Set("myapp.database.user", "admin")
-	store.Set("myapp.cache.host", "redis") // Should NOT match database.*
+func TestGlobMatching(t *testing.T) {
+	s := store.New()
+	s.Set("myapp.database.host", "localhost")
+	s.Set("myapp.database.port", "5432")
+	s.Set("myapp.database.user", "admin")
+	s.Set("myapp.cache.host", "redis") // Should NOT match database.*
 
-	cfg := NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "myapp"
 	cfg.Include = []string{"database.*"}
 
-	resolver := NewResolver(store, cfg)
-	vars := resolver.Resolve()
+	r := New(s, cfg)
+	vars := r.Resolve()
 
 	// Should have 3 database vars, not cache
 	if len(vars) != 3 {

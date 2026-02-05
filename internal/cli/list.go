@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/resolver"
+	"github.com/dk/varnish/internal/store"
 )
 
 func runList(args []string, stdout, stderr io.Writer) error {
@@ -32,7 +34,7 @@ func runList(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Load project config
-	cfg, err := domain.LoadProjectConfig()
+	cfg, err := project.Load()
 	if err != nil {
 		return fmt.Errorf("load project config: %w", err)
 	}
@@ -41,17 +43,17 @@ func runList(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Load store
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
 	// Create resolver
-	resolver := domain.NewResolver(store, cfg)
+	res := resolver.New(st, cfg)
 
 	if *missing {
 		// Show only missing variables
-		missingVars := resolver.MissingVars()
+		missingVars := res.MissingVars()
 
 		if *jsonOutput {
 			return json.NewEncoder(stdout).Encode(map[string]interface{}{
@@ -73,8 +75,8 @@ func runList(args []string, stdout, stderr io.Writer) error {
 
 	// Default: show resolved variables
 	_ = resolved // Flag exists for explicitness, but is default behavior
-	vars := resolver.Resolve()
-	missingVars := resolver.MissingVars()
+	vars := res.Resolve()
+	missingVars := res.MissingVars()
 
 	if *jsonOutput {
 		// Build JSON-friendly structure

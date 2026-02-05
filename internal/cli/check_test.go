@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 func TestRunCheckBasic(t *testing.T) {
@@ -16,7 +18,7 @@ func TestRunCheckBasic(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForCheck(t, "checktest")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("checktest.db.host", "localhost")
 	store.Save()
 
@@ -46,7 +48,7 @@ func TestRunCheckShowsProjectName(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForCheck(t, "namedproject")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("namedproject.key", "value")
 	store.Save()
 
@@ -73,7 +75,7 @@ func TestRunCheckMissingVarsWarning(t *testing.T) {
 	defer cleanupProject()
 
 	// Add some but not all required variables
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("checkmissing.db.host", "localhost")
 	// db.port is in the include but not set - should show as missing
 	store.Save()
@@ -103,7 +105,7 @@ func TestRunCheckStrictMode(t *testing.T) {
 	defer cleanupProject()
 
 	// Add some but not all required variables
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("checkstrict.db.host", "localhost")
 	// db.port is required but not set
 	store.Save()
@@ -135,7 +137,7 @@ func TestRunCheckStrictModeAllPresent(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForCheck(t, "checkstrictok")
 	defer cleanupProject()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("checkstrictok.db.host", "localhost")
 	store.Save()
 
@@ -188,11 +190,11 @@ func TestRunCheckNoIncludePatterns(t *testing.T) {
 	}
 	defer os.RemoveAll(projectDir)
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "noincludes")
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "noincludes"
 	cfg.Include = []string{} // No patterns
 	cfg.Save()
@@ -223,11 +225,11 @@ func TestRunCheckComputedValues(t *testing.T) {
 	}
 	defer os.RemoveAll(projectDir)
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, "checkcomputed")
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = "checkcomputed"
 	cfg.Include = []string{"db.*"}
 	cfg.Computed = map[string]string{
@@ -235,7 +237,7 @@ func TestRunCheckComputedValues(t *testing.T) {
 	}
 	cfg.Save()
 
-	store, _ := domain.LoadStore()
+	store, _ := store.Load()
 	store.Set("checkcomputed.db.host", "localhost")
 	store.Set("checkcomputed.db.user", "admin")
 	store.Set("checkcomputed.db.name", "mydb")
@@ -319,11 +321,11 @@ func setupProjectForCheck(t *testing.T, projectName string) (string, func()) {
 		t.Fatalf("failed to create project dir: %v", err)
 	}
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"db.*"}
 	cfg.Save()
@@ -342,11 +344,11 @@ func setupProjectForCheckWithRequired(t *testing.T, projectName string) (string,
 		t.Fatalf("failed to create project dir: %v", err)
 	}
 
-	reg, _ := domain.LoadRegistry()
+	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
 	reg.Save()
 
-	cfg := domain.NewProjectConfig()
+	cfg := project.New()
 	cfg.Project = projectName
 	// Use specific keys instead of wildcards so we can test missing vars
 	cfg.Include = []string{"db.host", "db.port"}

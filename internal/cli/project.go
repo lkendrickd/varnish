@@ -16,7 +16,9 @@ import (
 	"strings"
 
 	"github.com/dk/varnish/internal/config"
-	"github.com/dk/varnish/internal/domain"
+	"github.com/dk/varnish/internal/project"
+	"github.com/dk/varnish/internal/registry"
+	"github.com/dk/varnish/internal/store"
 )
 
 func runProject(args []string, stdout, stderr io.Writer) error {
@@ -83,7 +85,7 @@ func runProjectName(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Load registry
-	reg, err := domain.LoadRegistry()
+	reg, err := registry.Load()
 	if err != nil {
 		return fmt.Errorf("load registry: %w", err)
 	}
@@ -94,18 +96,18 @@ func runProjectName(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	project := reg.Lookup(cwd)
-	if project == "" {
+	proj := reg.Lookup(cwd)
+	if proj == "" {
 		return fmt.Errorf("directory not registered (run 'varnish init' first)")
 	}
 
 	if *showPath {
 		// Show path to project config
-		configPath := config.ProjectConfigPathFor(project)
+		configPath := config.ProjectConfigPathFor(proj)
 		fmt.Fprintln(stdout, configPath)
 	} else {
 		// Show project name
-		fmt.Fprintln(stdout, project)
+		fmt.Fprintln(stdout, proj)
 	}
 
 	return nil
@@ -123,20 +125,20 @@ func runProjectList(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
 	// Extract unique project prefixes from store keys
 	projects := make(map[string]int) // project -> variable count
-	for _, key := range store.Keys() {
+	for _, key := range st.Keys() {
 		// Keys are like "projectname.db.host"
 		// Extract the first segment as project name
 		idx := strings.Index(key, ".")
 		if idx > 0 {
-			project := key[:idx]
-			projects[project]++
+			proj := key[:idx]
+			projects[proj]++
 		}
 	}
 
@@ -153,7 +155,7 @@ func runProjectList(args []string, stdout, stderr io.Writer) error {
 	sort.Strings(names)
 
 	// Load registry to show registered directories
-	reg, err := domain.LoadRegistry()
+	reg, err := registry.Load()
 	if err != nil {
 		// Non-fatal, just show without directory info
 		for _, name := range names {
@@ -196,14 +198,14 @@ func runProjectDelete(args []string, stdout, stderr io.Writer) error {
 	projectName := fs.Arg(0)
 	prefix := projectName + "."
 
-	store, err := domain.LoadStore()
+	st, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("load store: %w", err)
 	}
 
 	// Find all keys for this project
 	var toDelete []string
-	for _, key := range store.Keys() {
+	for _, key := range st.Keys() {
 		if strings.HasPrefix(key, prefix) {
 			toDelete = append(toDelete, key)
 		}
@@ -223,19 +225,19 @@ func runProjectDelete(args []string, stdout, stderr io.Writer) error {
 
 	// Delete all keys
 	for _, key := range toDelete {
-		store.Delete(key)
+		st.Delete(key)
 	}
 
-	if saveErr := store.Save(); saveErr != nil {
+	if saveErr := st.Save(); saveErr != nil {
 		return fmt.Errorf("save store: %w", saveErr)
 	}
 
 	// Also remove from registry and delete config
-	reg, regErr := domain.LoadRegistry()
+	reg, regErr := registry.Load()
 	if regErr == nil {
 		// Remove all directory registrations for this project
-		for dir, proj := range reg.Projects {
-			if proj == projectName {
+		for dir, p := range reg.Projects {
+			if p == projectName {
 				delete(reg.Projects, dir)
 			}
 		}
@@ -243,7 +245,7 @@ func runProjectDelete(args []string, stdout, stderr io.Writer) error {
 	}
 
 	// Delete project config file (best effort)
-	_ = domain.DeleteProjectConfig(projectName)
+	_ = project.Delete(projectName)
 
 	fmt.Fprintf(stdout, "deleted %d variables for project '%s'\n", len(toDelete), projectName)
 	return nil
