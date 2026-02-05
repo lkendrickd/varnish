@@ -143,3 +143,200 @@ func TestMapsInitialized(t *testing.T) {
 		t.Error("Computed should be initialized")
 	}
 }
+
+func TestSaveWithRealPath(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	t.Setenv("HOME", tmpHome)
+
+	cfg := New()
+	cfg.Project = "testproj"
+	cfg.Include = []string{"db.*"}
+	cfg.Overrides["db.host"] = "localhost"
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Verify file was created
+	projectsDir := filepath.Join(tmpHome, ".varnish", "projects")
+	expectedPath := filepath.Join(projectsDir, "testproj.yaml")
+	if _, err := os.Stat(expectedPath); err != nil {
+		t.Errorf("expected file at %s: %v", expectedPath, err)
+	}
+}
+
+func TestLoadByName(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	t.Setenv("HOME", tmpHome)
+
+	// Create and save a project
+	cfg := New()
+	cfg.Project = "myproject"
+	cfg.Include = []string{"api.*"}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Load by name
+	loaded, err := LoadByName("myproject")
+	if err != nil {
+		t.Fatalf("LoadByName() error: %v", err)
+	}
+
+	if loaded.Project != "myproject" {
+		t.Errorf("loaded.Project = %q, want 'myproject'", loaded.Project)
+	}
+	if len(loaded.Include) != 1 || loaded.Include[0] != "api.*" {
+		t.Errorf("loaded.Include = %v, want [api.*]", loaded.Include)
+	}
+}
+
+func TestLoadByNameNotFound(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	t.Setenv("HOME", tmpHome)
+
+	_, err = LoadByName("nonexistent")
+	if err == nil {
+		t.Error("expected error for non-existent project")
+	}
+}
+
+func TestExists(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	t.Setenv("HOME", tmpHome)
+
+	// Before creating
+	if Exists("testexists") {
+		t.Error("Exists() should return false for non-existent project")
+	}
+
+	// Create the project
+	cfg := New()
+	cfg.Project = "testexists"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// After creating
+	if !Exists("testexists") {
+		t.Error("Exists() should return true after creating project")
+	}
+}
+
+func TestDelete(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	t.Setenv("HOME", tmpHome)
+
+	// Create a project
+	cfg := New()
+	cfg.Project = "todelete"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	if !Exists("todelete") {
+		t.Fatal("project should exist after Save()")
+	}
+
+	// Delete
+	if err := Delete("todelete"); err != nil {
+		t.Fatalf("Delete() error: %v", err)
+	}
+
+	if Exists("todelete") {
+		t.Error("project should not exist after Delete()")
+	}
+
+	// Delete non-existent (should not error)
+	if err := Delete("nonexistent"); err != nil {
+		t.Errorf("Delete() non-existent should not error: %v", err)
+	}
+}
+
+func TestLoad(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	// Create a project directory
+	projectDir := filepath.Join(tmpHome, "myproject")
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	t.Setenv("HOME", tmpHome)
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+
+	// Test 1: No project registered - should return nil, nil
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg != nil {
+		t.Error("Load() should return nil when no project registered")
+	}
+
+	// Test 2: Register project and create config
+	// First, create the registry
+	regDir := filepath.Join(tmpHome, ".varnish")
+	if err := os.MkdirAll(regDir, 0700); err != nil {
+		t.Fatalf("failed to create varnish dir: %v", err)
+	}
+	regContent := "version: 1\nprojects:\n    " + projectDir + ": loadtest\n"
+	if err := os.WriteFile(filepath.Join(regDir, "registry.yaml"), []byte(regContent), 0644); err != nil {
+		t.Fatalf("failed to write registry: %v", err)
+	}
+
+	// Create project config
+	projCfg := New()
+	projCfg.Project = "loadtest"
+	projCfg.Include = []string{"test.*"}
+	if err := projCfg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Now Load() should find the project
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("Load() should return config when project registered")
+	}
+	if loaded.Project != "loadtest" {
+		t.Errorf("loaded.Project = %q, want 'loadtest'", loaded.Project)
+	}
+}

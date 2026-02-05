@@ -17,6 +17,7 @@ import (
 	"sort"
 
 	"github.com/dk/varnish/internal/config"
+	"github.com/dk/varnish/internal/crypto"
 	"gopkg.in/yaml.v3"
 )
 
@@ -30,6 +31,7 @@ import (
 type Store struct {
 	Version   int               `yaml:"version"`
 	Variables map[string]string `yaml:"variables"`
+	encrypted bool              // runtime flag, not serialized
 }
 
 // New creates an empty store with version 1.
@@ -42,6 +44,7 @@ func New() *Store {
 
 // Load reads the store from ~/.varnish/store.yaml.
 // If the file doesn't exist, returns an empty store (not an error).
+// If the store is encrypted, requires VARNISH_PASSWORD to be set.
 func Load() (*Store, error) {
 	path, err := config.StorePath()
 	if err != nil {
@@ -57,8 +60,32 @@ func Load() (*Store, error) {
 		return nil, fmt.Errorf("read store: %w", err)
 	}
 
+	return parseStoreData(data)
+}
+
+// parseStoreData parses store data, handling both encrypted and plain formats.
+func parseStoreData(data []byte) (*Store, error) {
+	var yamlData []byte
+	var isEncrypted bool
+
+	if crypto.IsEncrypted(data) {
+		password, err := crypto.GetPassword()
+		if err != nil {
+			return nil, fmt.Errorf("encrypted store requires password: %w", err)
+		}
+
+		decrypted, err := crypto.Decrypt(data, password)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt store: %w", err)
+		}
+		yamlData = decrypted
+		isEncrypted = true
+	} else {
+		yamlData = data
+	}
+
 	var s Store
-	if err := yaml.Unmarshal(data, &s); err != nil {
+	if err := yaml.Unmarshal(yamlData, &s); err != nil {
 		return nil, fmt.Errorf("parse store: %w", err)
 	}
 
@@ -67,12 +94,14 @@ func Load() (*Store, error) {
 		s.Variables = make(map[string]string)
 	}
 
+	s.encrypted = isEncrypted
 	return &s, nil
 }
 
 // Save writes the store to ~/.varnish/store.yaml atomically.
 // Atomic write: write to temp file, then rename. This prevents corruption
 // if the process is killed mid-write.
+// If encryption is enabled, encrypts the data before writing.
 func (s *Store) Save() error {
 	// Ensure the directory exists
 	if err := config.EnsureVarnishDir(); err != nil {
@@ -85,9 +114,25 @@ func (s *Store) Save() error {
 	}
 
 	// Marshal to YAML
-	data, err := yaml.Marshal(s)
+	yamlData, err := yaml.Marshal(s)
 	if err != nil {
 		return fmt.Errorf("marshal store: %w", err)
+	}
+
+	// Encrypt if enabled
+	var data []byte
+	if s.encrypted {
+		password, err := crypto.GetPassword()
+		if err != nil {
+			return fmt.Errorf("encryption requires password: %w", err)
+		}
+		encrypted, err := crypto.Encrypt(yamlData, password)
+		if err != nil {
+			return fmt.Errorf("encrypt store: %w", err)
+		}
+		data = encrypted
+	} else {
+		data = yamlData
 	}
 
 	// Write to temp file in same directory (same filesystem for atomic rename)
@@ -138,31 +183,40 @@ func (s *Store) Save() error {
 }
 
 // SaveTo writes the store to a specific path (for testing).
+// If encryption is enabled, encrypts the data before writing.
 func (s *Store) SaveTo(path string) error {
-	data, err := yaml.Marshal(s)
+	yamlData, err := yaml.Marshal(s)
 	if err != nil {
 		return fmt.Errorf("marshal store: %w", err)
 	}
+
+	var data []byte
+	if s.encrypted {
+		password, err := crypto.GetPassword()
+		if err != nil {
+			return fmt.Errorf("encryption requires password: %w", err)
+		}
+		encrypted, err := crypto.Encrypt(yamlData, password)
+		if err != nil {
+			return fmt.Errorf("encrypt store: %w", err)
+		}
+		data = encrypted
+	} else {
+		data = yamlData
+	}
+
 	return config.AtomicWrite(path, data, config.PermSecure)
 }
 
 // LoadFrom reads a store from a specific path (for testing).
+// If the store is encrypted, requires VARNISH_PASSWORD to be set.
 func LoadFrom(path string) (*Store, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read store: %w", err)
 	}
 
-	var s Store
-	if err := yaml.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("parse store: %w", err)
-	}
-
-	if s.Variables == nil {
-		s.Variables = make(map[string]string)
-	}
-
-	return &s, nil
+	return parseStoreData(data)
 }
 
 // Set adds or updates a variable in the store.
@@ -202,4 +256,33 @@ func (s *Store) Keys() []string {
 // Len returns the number of variables in the store.
 func (s *Store) Len() int {
 	return len(s.Variables)
+}
+
+// IsEncrypted returns true if the store uses encryption.
+func (s *Store) IsEncrypted() bool {
+	return s.encrypted
+}
+
+// EnableEncryption enables encryption for the store.
+// Requires VARNISH_PASSWORD to be set.
+func (s *Store) EnableEncryption() error {
+	if _, err := crypto.GetPassword(); err != nil {
+		return err
+	}
+	s.encrypted = true
+	return nil
+}
+
+// Remove deletes the store file from disk.
+// Returns nil if the file doesn't exist.
+func Remove() error {
+	path, err := config.StorePath()
+	if err != nil {
+		return fmt.Errorf("get store path: %w", err)
+	}
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove store: %w", err)
+	}
+	return nil
 }

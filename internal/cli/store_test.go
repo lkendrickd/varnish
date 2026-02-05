@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/dk/varnish/internal/config"
+	"github.com/dk/varnish/internal/project"
 	"github.com/dk/varnish/internal/store"
 )
 
@@ -447,5 +448,243 @@ func TestRunStoreShellStyleKeyValue(t *testing.T) {
 
 	if strings.TrimSpace(stdout.String()) != "my-api-key" {
 		t.Errorf("got value = %q, want 'my-api-key'", strings.TrimSpace(stdout.String()))
+	}
+}
+
+func TestMatchGlob(t *testing.T) {
+	tests := []struct {
+		pattern string
+		s       string
+		want    bool
+	}{
+		// Wildcard all
+		{"*", "anything", true},
+		{"*", "database.host", true},
+		{"*", "", true},
+
+		// Prefix match
+		{"database.*", "database.host", true},
+		{"database.*", "database.port", true},
+		{"database.*", "database.user.name", true},
+		{"database.*", "api.key", false},
+		{"database.*", "database", false},
+
+		// Suffix match
+		{"*.host", "database.host", true},
+		{"*.host", "redis.host", true},
+		{"*.host", "host", false},
+		{"*.host", "database.port", false},
+
+		// Exact match
+		{"database.host", "database.host", true},
+		{"database.host", "database.port", false},
+		{"api.key", "api.key", true},
+	}
+
+	for _, tt := range tests {
+		name := tt.pattern + "_" + tt.s
+		t.Run(name, func(t *testing.T) {
+			got := matchGlob(tt.pattern, tt.s)
+			if got != tt.want {
+				t.Errorf("matchGlob(%q, %q) = %v, want %v", tt.pattern, tt.s, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectProject(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Test when not in a registered directory
+	proj := detectProject()
+	if proj != "" {
+		t.Errorf("detectProject() = %q, want empty when not registered", proj)
+	}
+}
+
+func TestEnsureIncludePattern(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a project first
+	cfg := &project.Config{
+		Version:   1,
+		Project:   "testproj",
+		Include:   []string{},
+		Overrides: make(map[string]string),
+		Mappings:  make(map[string]string),
+		Computed:  make(map[string]string),
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save project: %v", err)
+	}
+
+	var stdout bytes.Buffer
+
+	// Add a pattern for a new key
+	err := ensureIncludePattern("testproj", "db.host", &stdout)
+	if err != nil {
+		t.Fatalf("ensureIncludePattern() error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "added 'db.*'") {
+		t.Errorf("expected 'added db.*' in output, got: %s", stdout.String())
+	}
+
+	// Reload and verify
+	loaded, err := project.LoadByName("testproj")
+	if err != nil {
+		t.Fatalf("LoadByName() error: %v", err)
+	}
+
+	found := false
+	for _, inc := range loaded.Include {
+		if inc == "db.*" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'db.*' in includes, got: %v", loaded.Include)
+	}
+
+	// Adding the same pattern again should not duplicate
+	stdout.Reset()
+	err = ensureIncludePattern("testproj", "db.user", &stdout)
+	if err != nil {
+		t.Fatalf("ensureIncludePattern() error: %v", err)
+	}
+
+	// Should not add again (already covered by db.*)
+	if strings.Contains(stdout.String(), "added") {
+		t.Errorf("should not add duplicate pattern, got: %s", stdout.String())
+	}
+}
+
+func TestEnsureIncludePatternSimpleKey(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a project
+	cfg := &project.Config{
+		Version:   1,
+		Project:   "simpleproj",
+		Include:   []string{},
+		Overrides: make(map[string]string),
+		Mappings:  make(map[string]string),
+		Computed:  make(map[string]string),
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save project: %v", err)
+	}
+
+	var stdout bytes.Buffer
+
+	// Add a simple key (no dots)
+	err := ensureIncludePattern("simpleproj", "apikey", &stdout)
+	if err != nil {
+		t.Fatalf("ensureIncludePattern() error: %v", err)
+	}
+
+	// Reload and verify - should add "apikey" not ".*"
+	loaded, err := project.LoadByName("simpleproj")
+	if err != nil {
+		t.Fatalf("LoadByName() error: %v", err)
+	}
+
+	found := false
+	for _, inc := range loaded.Include {
+		if inc == "apikey" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'apikey' in includes, got: %v", loaded.Include)
+	}
+}
+
+func TestRunStoreEncrypt(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a store with some data
+	st := store.New()
+	st.Set("test.key", "secret-value")
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	// Encrypt with --password flag
+	err := runStore([]string{"encrypt", "--password", "testpassword"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore encrypt error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "encrypted") {
+		t.Errorf("expected 'encrypted' in output, got: %s", stdout.String())
+	}
+
+	// Verify store is encrypted
+	t.Setenv("VARNISH_PASSWORD", "testpassword")
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("failed to load encrypted store: %v", err)
+	}
+	if !loaded.IsEncrypted() {
+		t.Error("store should be encrypted")
+	}
+	val, ok := loaded.Get("test.key")
+	if !ok || val != "secret-value" {
+		t.Errorf("Get(test.key) = %q, %v; want secret-value, true", val, ok)
+	}
+}
+
+func TestRunStoreEncryptNoPassword(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	unsetenv(t, "VARNISH_PASSWORD")
+
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{"encrypt"}, &stdout, &stderr)
+	if err == nil {
+		t.Error("expected error when no password provided")
+	}
+	if !strings.Contains(err.Error(), "password") {
+		t.Errorf("expected error to mention password, got: %v", err)
+	}
+}
+
+func TestRunStoreEncryptAlreadyEncrypted(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	t.Setenv("VARNISH_PASSWORD", "testpassword")
+
+	// Create and encrypt a store
+	st := store.New()
+	st.Set("test.key", "value")
+	if err := st.EnableEncryption(); err != nil {
+		t.Fatalf("EnableEncryption() error: %v", err)
+	}
+	if err := st.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	// Try to encrypt again
+	err := runStore([]string{"encrypt", "--password", "testpassword"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore encrypt error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "already encrypted") {
+		t.Errorf("expected 'already encrypted' in output, got: %s", stdout.String())
 	}
 }

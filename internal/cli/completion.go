@@ -71,8 +71,8 @@ _varnish_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init store env list project completion version help"
-    local store_commands="set get list ls delete rm import"
+    local commands="init store env list check project completion version help"
+    local store_commands="set get list ls delete rm import encrypt"
     local project_commands="name list delete"
 
     case "${cword}" in
@@ -91,13 +91,16 @@ _varnish_completions() {
                     COMPREPLY=($(compgen -W "bash zsh fish" -- "${cur}"))
                     ;;
                 init)
-                    COMPREPLY=($(compgen -W "--project -p --from -f --no-import --sync -s --force" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "--project -p --from -f --no-import --sync -s --force --encrypt --password" -- "${cur}"))
                     ;;
                 env)
                     COMPREPLY=($(compgen -W "--dry-run --force --output" -- "${cur}"))
                     ;;
                 list)
                     COMPREPLY=($(compgen -W "--missing --json" -- "${cur}"))
+                    ;;
+                check)
+                    COMPREPLY=($(compgen -W "--strict" -- "${cur}"))
                     ;;
                 *)
                     ;;
@@ -108,14 +111,16 @@ _varnish_completions() {
                 store)
                     case "${prev}" in
                         set|get|delete|rm)
-                            # Could complete with keys from store
-                            COMPREPLY=($(compgen -W "--project -p --global -g" -- "${cur}"))
+                            COMPREPLY=($(compgen -W "--project -p --global -g --stdin" -- "${cur}"))
                             ;;
                         list|ls)
                             COMPREPLY=($(compgen -W "--pattern --project -p --global -g --json" -- "${cur}"))
                             ;;
                         import)
                             COMPREPLY=($(compgen -f -- "${cur}"))
+                            ;;
+                        encrypt)
+                            COMPREPLY=($(compgen -W "--password" -- "${cur}"))
                             ;;
                     esac
                     ;;
@@ -144,6 +149,7 @@ _varnish() {
         'store:Manage central variable store'
         'env:Generate .env file'
         'list:Show resolved variables'
+        'check:Validate config and check for missing variables'
         'project:Show/manage project info'
         'completion:Generate shell completion'
         'version:Show version'
@@ -158,6 +164,7 @@ _varnish() {
         'delete:Remove a variable'
         'rm:Remove a variable (alias)'
         'import:Import from .env file'
+        'encrypt:Enable store encryption'
     )
 
     project_commands=(
@@ -177,7 +184,8 @@ _varnish() {
                             '-p[Project namespace]:project:' \
                             '--project[Project namespace]:project:' \
                             '-g[Bypass project auto-detection]' \
-                            '--global[Bypass project auto-detection]'
+                            '--global[Bypass project auto-detection]' \
+                            '--stdin[Read value from stdin]'
                         ;;
                     list|ls)
                         _arguments \
@@ -193,6 +201,10 @@ _varnish() {
                             '-p[Project namespace]:project:' \
                             '--project[Project namespace]:project:' \
                             '*:file:_files'
+                        ;;
+                    encrypt)
+                        _arguments \
+                            '--password[Encryption password]:password:'
                         ;;
                 esac
             fi
@@ -217,7 +229,9 @@ _varnish() {
                 '--no-import[Skip importing defaults]' \
                 '-s[Sync store with .env]' \
                 '--sync[Sync store with .env]' \
-                '--force[Overwrite existing config]'
+                '--force[Overwrite existing config]' \
+                '--encrypt[Enable store encryption]' \
+                '--password[Encryption password]:password:'
             ;;
         env)
             _arguments \
@@ -229,6 +243,10 @@ _varnish() {
             _arguments \
                 '--missing[Show missing variables]' \
                 '--json[Output as JSON]'
+            ;;
+        check)
+            _arguments \
+                '--strict[Fail if any variables are missing]'
             ;;
         completion)
             if (( CURRENT == 3 )); then
@@ -256,6 +274,7 @@ complete -c varnish -n "__fish_use_subcommand" -a "init" -d "Initialize project"
 complete -c varnish -n "__fish_use_subcommand" -a "store" -d "Manage variable store"
 complete -c varnish -n "__fish_use_subcommand" -a "env" -d "Generate .env file"
 complete -c varnish -n "__fish_use_subcommand" -a "list" -d "Show resolved variables"
+complete -c varnish -n "__fish_use_subcommand" -a "check" -d "Validate config"
 complete -c varnish -n "__fish_use_subcommand" -a "project" -d "Project info"
 complete -c varnish -n "__fish_use_subcommand" -a "completion" -d "Generate completions"
 complete -c varnish -n "__fish_use_subcommand" -a "version" -d "Show version"
@@ -267,10 +286,13 @@ complete -c varnish -n "__fish_seen_subcommand_from store" -a "get" -d "Get vari
 complete -c varnish -n "__fish_seen_subcommand_from store" -a "list ls" -d "List variables"
 complete -c varnish -n "__fish_seen_subcommand_from store" -a "delete rm" -d "Delete variable"
 complete -c varnish -n "__fish_seen_subcommand_from store" -a "import" -d "Import from file"
+complete -c varnish -n "__fish_seen_subcommand_from store" -a "encrypt" -d "Enable encryption"
 
 # store flags
 complete -c varnish -n "__fish_seen_subcommand_from store" -s p -l project -d "Project namespace"
 complete -c varnish -n "__fish_seen_subcommand_from store" -s g -l global -d "Bypass project detection"
+complete -c varnish -n "__fish_seen_subcommand_from store" -l stdin -d "Read value from stdin"
+complete -c varnish -n "__fish_seen_subcommand_from store" -l password -d "Encryption password"
 
 # project subcommands
 complete -c varnish -n "__fish_seen_subcommand_from project" -a "name" -d "Show project name"
@@ -286,6 +308,8 @@ complete -c varnish -n "__fish_seen_subcommand_from init" -s f -l from -d "Path 
 complete -c varnish -n "__fish_seen_subcommand_from init" -l no-import -d "Skip importing"
 complete -c varnish -n "__fish_seen_subcommand_from init" -s s -l sync -d "Sync store"
 complete -c varnish -n "__fish_seen_subcommand_from init" -l force -d "Overwrite config"
+complete -c varnish -n "__fish_seen_subcommand_from init" -l encrypt -d "Enable encryption"
+complete -c varnish -n "__fish_seen_subcommand_from init" -l password -d "Encryption password"
 
 # env flags
 complete -c varnish -n "__fish_seen_subcommand_from env" -l dry-run -d "Preview only"
@@ -295,4 +319,7 @@ complete -c varnish -n "__fish_seen_subcommand_from env" -l output -d "Output pa
 # list flags
 complete -c varnish -n "__fish_seen_subcommand_from list" -l missing -d "Show missing vars"
 complete -c varnish -n "__fish_seen_subcommand_from list" -l json -d "JSON output"
+
+# check flags
+complete -c varnish -n "__fish_seen_subcommand_from check" -l strict -d "Fail if missing vars"
 `

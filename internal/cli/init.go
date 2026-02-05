@@ -14,6 +14,7 @@
 //	--no-import      Don't import default values into the store
 //	--sync           Sync store with .env file (removes empty/missing vars)
 //	--force          Overwrite existing project config
+//	--encrypt        Enable encryption for the store (requires VARNISH_PASSWORD)
 package cli
 
 import (
@@ -25,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/dk/varnish/internal/config"
+	"github.com/dk/varnish/internal/crypto"
 	"github.com/dk/varnish/internal/project"
 	"github.com/dk/varnish/internal/registry"
 	"github.com/dk/varnish/internal/store"
@@ -41,12 +43,26 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	sync := fs.Bool("sync", false, "sync store with .env (removes vars that are empty/missing)")
 	fs.BoolVar(sync, "s", false, "sync store (shorthand)")
 	force := fs.Bool("force", false, "overwrite existing project config")
+	encrypt := fs.Bool("encrypt", false, "enable encryption for the store")
+	password := fs.String("password", "", "encryption password (or set VARNISH_PASSWORD)")
 
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return nil
 		}
 		return err
+	}
+
+	// If --password provided, set the env var for this session
+	if *password != "" {
+		os.Setenv(crypto.PasswordEnvVar, *password)
+	}
+
+	// Validate encryption requirements
+	if *encrypt {
+		if _, err := crypto.GetPassword(); err != nil {
+			return fmt.Errorf("--encrypt requires --password or VARNISH_PASSWORD env var")
+		}
 	}
 
 	// Get current directory
@@ -131,8 +147,10 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "registered %s → project '%s'\n", cwd, projectName)
 	fmt.Fprintf(stdout, "config: %s\n", configPath)
 
-	// Import defaults into store if we have vars and not disabled
-	if !*noImport && len(vars) > 0 {
+	// Import defaults into store if we have vars and not disabled,
+	// or if encryption is being enabled
+	needsStore := (!*noImport && len(vars) > 0) || *encrypt
+	if needsStore {
 		st, err := store.Load()
 		if err != nil {
 			return fmt.Errorf("load store: %w", err)
@@ -148,46 +166,65 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 		added := 0
 		removed := 0
 
-		// Add/update variables with values
-		for _, v := range vars {
-			storeKey := projectName + "." + v.Key
-			if v.HasValue {
-				st.Set(storeKey, v.Default)
-				added++
-			} else if *sync {
-				// --sync: remove variables that have no value in .env
-				if st.Delete(storeKey) {
-					removed++
-					fmt.Fprintf(stdout, "removed %s (no value in .env)\n", v.Key)
+		// Add/update variables (if not --no-import)
+		// Variables without defaults get empty values - this shows the user what keys exist
+		if !*noImport {
+			for _, v := range vars {
+				storeKey := projectName + "." + v.Key
+				// Only update if key doesn't exist or has a value to set
+				_, exists := st.Get(storeKey)
+				if v.HasValue {
+					st.Set(storeKey, v.Default)
+					added++
+				} else if !exists {
+					// Key doesn't exist - add with empty value so user knows it's needed
+					st.Set(storeKey, "")
+					added++
+				}
+				// If key exists and no new value, leave it alone
+			}
+
+			// --sync: also remove variables NOT in .env file at all
+			if *sync {
+				prefix := projectName + "."
+				for _, key := range st.Keys() {
+					if strings.HasPrefix(key, prefix) && !shouldExist[key] {
+						st.Delete(key)
+						removed++
+						// Show the key without project prefix
+						shortKey := strings.TrimPrefix(key, prefix)
+						fmt.Fprintf(stdout, "removed %s (not in .env)\n", shortKey)
+					}
 				}
 			}
 		}
 
-		// --sync: also remove variables NOT in .env file at all
-		if *sync {
-			prefix := projectName + "."
-			for _, key := range st.Keys() {
-				if strings.HasPrefix(key, prefix) && !shouldExist[key] {
-					st.Delete(key)
-					removed++
-					// Show the key without project prefix
-					shortKey := strings.TrimPrefix(key, prefix)
-					fmt.Fprintf(stdout, "removed %s (not in .env)\n", shortKey)
+		// Enable encryption if requested
+		encryptionEnabled := false
+		if *encrypt {
+			if st.IsEncrypted() {
+				fmt.Fprintln(stdout, "store is already encrypted")
+			} else {
+				if err := st.EnableEncryption(); err != nil {
+					return fmt.Errorf("enable encryption: %w", err)
 				}
+				encryptionEnabled = true
+				fmt.Fprintln(stdout, "encryption enabled for store")
 			}
 		}
 
-		if added > 0 || removed > 0 {
+		if added > 0 || removed > 0 || encryptionEnabled {
 			if err := st.Save(); err != nil {
 				return fmt.Errorf("save store: %w", err)
 			}
 			if added > 0 {
-				fmt.Fprintf(stdout, "imported %d default values into store\n", added)
+				fmt.Fprintf(stdout, "imported %d variables into store\n", added)
 			}
 			if removed > 0 {
 				fmt.Fprintf(stdout, "removed %d stale variables\n", removed)
 			}
 		}
+
 	}
 
 	return nil

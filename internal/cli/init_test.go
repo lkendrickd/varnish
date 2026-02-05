@@ -7,9 +7,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dk/varnish/internal/crypto"
 	"github.com/dk/varnish/internal/project"
 	"github.com/dk/varnish/internal/store"
 )
+
+// unsetenv removes an env var and registers cleanup to restore it.
+func unsetenv(t *testing.T, key string) {
+	t.Helper()
+	orig, exists := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatalf("failed to unset %s: %v", key, err)
+	}
+	t.Cleanup(func() {
+		if exists {
+			os.Setenv(key, orig)
+		}
+	})
+}
 
 func TestRunInitBasic(t *testing.T) {
 	cleanup := setupTestEnv(t)
@@ -350,5 +365,199 @@ func TestRunInitNoImport(t *testing.T) {
 
 	if _, exists := store.Get("noimport.imported.var"); exists {
 		t.Error("variable should not have been imported with --no-import")
+	}
+}
+
+func TestRunInitEncrypt(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	t.Setenv(crypto.PasswordEnvVar, "testpassword")
+
+	projectDir, err := os.MkdirTemp("", "varnish-project-*")
+	if err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+	defer os.RemoveAll(projectDir)
+
+	envContent := "SECRET_KEY=mysecret\nAPI_TOKEN=token123\n"
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = runInit([]string{"--project", "enctest", "--encrypt"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runInit error: %v\nstderr: %s", err, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "encryption enabled") {
+		t.Errorf("expected 'encryption enabled' in output, got: %s", output)
+	}
+
+	// Verify store is encrypted
+	st, err := store.Load()
+	if err != nil {
+		t.Fatalf("failed to load store: %v", err)
+	}
+
+	if !st.IsEncrypted() {
+		t.Error("store should be encrypted after init --encrypt")
+	}
+
+	// Verify values were still imported
+	val, ok := st.Get("enctest.secret.key")
+	if !ok || val != "mysecret" {
+		t.Errorf("encrypted store secret.key = %q, ok=%v, want 'mysecret'", val, ok)
+	}
+}
+
+func TestRunInitEncryptWithPasswordFlag(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Ensure no password env var - we'll use --password flag instead
+	unsetenv(t, crypto.PasswordEnvVar)
+
+	projectDir, err := os.MkdirTemp("", "varnish-project-*")
+	if err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+	defer os.RemoveAll(projectDir)
+
+	envContent := "SECRET_KEY=mysecret\n"
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = runInit([]string{"--project", "pwdtest", "--encrypt", "--password", "mypassword"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runInit error: %v\nstderr: %s", err, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "encryption enabled") {
+		t.Errorf("expected 'encryption enabled' in output, got: %s", output)
+	}
+
+	// Verify store is encrypted (need to set password to load)
+	t.Setenv(crypto.PasswordEnvVar, "mypassword")
+	st, err := store.Load()
+	if err != nil {
+		t.Fatalf("failed to load store: %v", err)
+	}
+	if !st.IsEncrypted() {
+		t.Error("store should be encrypted")
+	}
+}
+
+func TestRunInitEncryptNoPassword(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	unsetenv(t, crypto.PasswordEnvVar)
+
+	projectDir, err := os.MkdirTemp("", "varnish-project-*")
+	if err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+	defer os.RemoveAll(projectDir)
+
+	envContent := "VAR=value\n"
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = runInit([]string{"--project", "nopasstest", "--encrypt"}, &stdout, &stderr)
+	if err == nil {
+		t.Error("expected error when using --encrypt without VARNISH_PASSWORD")
+	}
+
+	if !strings.Contains(err.Error(), "password") && !strings.Contains(err.Error(), "VARNISH_PASSWORD") {
+		t.Errorf("error should mention password, got: %v", err)
+	}
+}
+
+func TestRunInitEncryptAlreadyEncrypted(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	t.Setenv(crypto.PasswordEnvVar, "testpassword")
+
+	projectDir, err := os.MkdirTemp("", "varnish-project-*")
+	if err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+	defer os.RemoveAll(projectDir)
+
+	envContent := "VAR=value\n"
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	// First init with --encrypt
+	err = runInit([]string{"--project", "alreadyenc", "--encrypt"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("first init error: %v", err)
+	}
+
+	// Second init with --encrypt --force should succeed but not print "encryption enabled" again
+	stdout.Reset()
+	stderr.Reset()
+
+	// Update .env to trigger a change
+	envContent = "VAR=updated\n"
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatalf("failed to update .env: %v", err)
+	}
+
+	err = runInit([]string{"--project", "alreadyenc", "--encrypt", "--force"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("second init error: %v", err)
+	}
+
+	output := stdout.String()
+	// Should not say "encryption enabled" since it was already encrypted
+	if strings.Contains(output, "encryption enabled") {
+		t.Errorf("should not say 'encryption enabled' when already encrypted, got: %s", output)
+	}
+
+	// Store should still be encrypted
+	st, err := store.Load()
+	if err != nil {
+		t.Fatalf("failed to load store: %v", err)
+	}
+
+	if !st.IsEncrypted() {
+		t.Error("store should still be encrypted")
 	}
 }

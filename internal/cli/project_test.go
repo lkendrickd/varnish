@@ -370,3 +370,100 @@ func TestRunProjectDeleteCleansRegistry(t *testing.T) {
 		t.Error("project config should have been deleted")
 	}
 }
+
+func TestResolveProjectRef(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Test with name (not a number)
+	name, err := resolveProjectRef("myproject")
+	if err != nil {
+		t.Fatalf("resolveProjectRef(name) error: %v", err)
+	}
+	if name != "myproject" {
+		t.Errorf("resolveProjectRef(name) = %q, want 'myproject'", name)
+	}
+
+	// Test with empty store (no projects)
+	_, err = resolveProjectRef("1")
+	if err == nil {
+		t.Error("expected error when no projects exist")
+	}
+	if !strings.Contains(err.Error(), "no projects found") {
+		t.Errorf("expected 'no projects found' error, got: %v", err)
+	}
+
+	// Create some projects in store
+	st := store.New()
+	st.Set("alpha.key", "value")
+	st.Set("beta.key", "value")
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
+
+	// Test with valid ID
+	name, err = resolveProjectRef("1")
+	if err != nil {
+		t.Fatalf("resolveProjectRef(1) error: %v", err)
+	}
+	if name != "alpha" {
+		t.Errorf("resolveProjectRef(1) = %q, want 'alpha'", name)
+	}
+
+	name, err = resolveProjectRef("2")
+	if err != nil {
+		t.Fatalf("resolveProjectRef(2) error: %v", err)
+	}
+	if name != "beta" {
+		t.Errorf("resolveProjectRef(2) = %q, want 'beta'", name)
+	}
+
+	// Test with invalid ID (out of range)
+	_, err = resolveProjectRef("0")
+	if err == nil {
+		t.Error("expected error for ID 0")
+	}
+
+	_, err = resolveProjectRef("3")
+	if err == nil {
+		t.Error("expected error for ID out of range")
+	}
+}
+
+func TestResolveProjectFlag(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Test with global flag (empty project name)
+	name, err := resolveProjectFlag("", true)
+	if err != nil {
+		t.Fatalf("resolveProjectFlag(global) error: %v", err)
+	}
+	if name != "" {
+		t.Errorf("resolveProjectFlag(global) = %q, want empty", name)
+	}
+
+	// Test with explicit project name
+	name, err = resolveProjectFlag("myapp", false)
+	if err != nil {
+		t.Fatalf("resolveProjectFlag(name) error: %v", err)
+	}
+	if name != "myapp" {
+		t.Errorf("resolveProjectFlag(name) = %q, want 'myapp'", name)
+	}
+
+	// Test with numeric project ref
+	st := store.New()
+	st.Set("testproj.key", "value")
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
+
+	name, err = resolveProjectFlag("1", false)
+	if err != nil {
+		t.Fatalf("resolveProjectFlag(1) error: %v", err)
+	}
+	if name != "testproj" {
+		t.Errorf("resolveProjectFlag(1) = %q, want 'testproj'", name)
+	}
+}
