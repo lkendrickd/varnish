@@ -1,0 +1,33 @@
+# Build artifacts
+varnish
+*.exe
+coverage.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation (not needed in image)
+README.md
+LICENSE
+
+# Environment files (don't bake secrets into image)
+.env
+.env.*
+!example.env
+
+# Test files
+*_test.go
+testdata/

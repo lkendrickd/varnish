@@ -1,0 +1,323 @@
+package cli
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/dk/varnish/internal/config"
+	"github.com/dk/varnish/internal/domain"
+)
+
+// setupTestEnv creates a temporary varnish environment for testing
+func setupTestEnv(t *testing.T) (cleanup func()) {
+	t.Helper()
+
+	// Save original home
+	origHome := os.Getenv("HOME")
+
+	// Create temp home directory
+	tmpHome, err := os.MkdirTemp("", "varnish-test-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+
+	// Set HOME to temp directory
+	os.Setenv("HOME", tmpHome)
+
+	// Ensure varnish directories exist
+	if err := config.EnsureVarnishDir(); err != nil {
+		t.Fatalf("failed to ensure varnish dir: %v", err)
+	}
+	if err := config.EnsureProjectsDir(); err != nil {
+		t.Fatalf("failed to ensure projects dir: %v", err)
+	}
+
+	return func() {
+		os.Setenv("HOME", origHome)
+		os.RemoveAll(tmpHome)
+	}
+}
+
+func TestRunStoreHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{}, &stdout, &stderr)
+	if err != nil {
+		t.Errorf("runStore() error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Usage:") {
+		t.Error("expected usage info in output")
+	}
+	if !strings.Contains(output, "store") {
+		t.Error("expected 'store' in output")
+	}
+}
+
+func TestRunStoreSetGet(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	var stdout, stderr bytes.Buffer
+
+	// Set a value (flags before positional args)
+	err := runStore([]string{"set", "-g", "test.key", "testvalue"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore set error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "set test.key") {
+		t.Errorf("expected confirmation, got: %s", stdout.String())
+	}
+
+	// Get the value
+	stdout.Reset()
+	stderr.Reset()
+
+	err = runStore([]string{"get", "-g", "test.key"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore get error: %v", err)
+	}
+
+	if strings.TrimSpace(stdout.String()) != "testvalue" {
+		t.Errorf("got value = %q, want 'testvalue'", strings.TrimSpace(stdout.String()))
+	}
+}
+
+func TestRunStoreSetKeyValue(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	var stdout, stderr bytes.Buffer
+
+	// Set using key=value syntax (flags before positional args)
+	err := runStore([]string{"set", "-g", "test.keyval=myvalue"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore set error: %v", err)
+	}
+
+	// Get and verify
+	stdout.Reset()
+	err = runStore([]string{"get", "-g", "test.keyval"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore get error: %v", err)
+	}
+
+	if strings.TrimSpace(stdout.String()) != "myvalue" {
+		t.Errorf("got value = %q, want 'myvalue'", strings.TrimSpace(stdout.String()))
+	}
+}
+
+func TestRunStoreList(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a store with some values
+	store := domain.NewStore()
+	store.Set("project.db.host", "localhost")
+	store.Set("project.db.port", "5432")
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{"list", "-g"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore list error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "project.db.host=localhost") {
+		t.Errorf("expected db.host in output, got: %s", output)
+	}
+	if !strings.Contains(output, "project.db.port=5432") {
+		t.Errorf("expected db.port in output, got: %s", output)
+	}
+}
+
+func TestRunStoreListJSON(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a store with some values
+	store := domain.NewStore()
+	store.Set("test.key", "value")
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{"list", "-g", "--json"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore list --json error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "variables") {
+		t.Errorf("expected JSON with 'variables' field, got: %s", output)
+	}
+	if !strings.Contains(output, "test.key") {
+		t.Errorf("expected test.key in JSON output, got: %s", output)
+	}
+}
+
+func TestRunStoreDelete(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a store with a value
+	store := domain.NewStore()
+	store.Set("todelete", "value")
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	// Delete the key (flags before positional args)
+	err := runStore([]string{"delete", "-g", "todelete"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore delete error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "deleted todelete") {
+		t.Errorf("expected deletion confirmation, got: %s", stdout.String())
+	}
+
+	// Verify it's deleted
+	stdout.Reset()
+	stderr.Reset()
+
+	err = runStore([]string{"get", "-g", "todelete"}, &stdout, &stderr)
+	if err == nil {
+		t.Error("expected error when getting deleted key")
+	}
+}
+
+func TestRunStoreDeleteNotFound(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{"delete", "-g", "nonexistent"}, &stdout, &stderr)
+	if err == nil {
+		t.Error("expected error when deleting non-existent key")
+	}
+}
+
+func TestRunStoreAliases(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a store with values
+	store := domain.NewStore()
+	store.Set("alias.test", "value")
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	// Test 'ls' alias for 'list'
+	err := runStore([]string{"ls", "-g"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore ls error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "alias.test") {
+		t.Errorf("expected alias.test in ls output, got: %s", stdout.String())
+	}
+
+	// Test 'rm' alias for 'delete'
+	stdout.Reset()
+	stderr.Reset()
+
+	err = runStore([]string{"rm", "-g", "alias.test"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore rm error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "deleted") {
+		t.Errorf("expected deletion confirmation, got: %s", stdout.String())
+	}
+}
+
+func TestRunStoreImport(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	// Create a temp .env file
+	tmpDir, err := os.MkdirTemp("", "varnish-import-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	envContent := `IMPORT_KEY1=value1
+IMPORT_KEY2=value2
+`
+	envPath := filepath.Join(tmpDir, "import.env")
+	if err := os.WriteFile(envPath, []byte(envContent), 0644); err != nil {
+		t.Fatalf("failed to write env file: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+
+	err = runStore([]string{"import", "-g", envPath}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("runStore import error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "imported") {
+		t.Errorf("expected import confirmation, got: %s", stdout.String())
+	}
+
+	// Verify imported values
+	stdout.Reset()
+	err = runStore([]string{"get", "-g", "import.key1"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("failed to get imported key: %v", err)
+	}
+
+	if strings.TrimSpace(stdout.String()) != "value1" {
+		t.Errorf("imported value = %q, want 'value1'", strings.TrimSpace(stdout.String()))
+	}
+}
+
+func TestRunStoreUnknownSubcommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{"unknown"}, &stdout, &stderr)
+	if err == nil {
+		t.Error("expected error for unknown subcommand")
+	}
+
+	if !strings.Contains(stderr.String(), "unknown") {
+		t.Errorf("expected 'unknown' in error output, got: %s", stderr.String())
+	}
+}
+
+func TestRunStoreSetMissingKey(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{"set"}, &stdout, &stderr)
+	if err == nil {
+		t.Error("expected error when key is missing")
+	}
+}
+
+func TestRunStoreSetMissingValue(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	err := runStore([]string{"set", "-g", "key"}, &stdout, &stderr)
+	if err == nil {
+		t.Error("expected error when value is missing")
+	}
+}

@@ -1,0 +1,47 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    exclude-functions:
+      # CLI output - nothing useful to do if stdout/stderr fails
+      - fmt.Fprint
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - fmt.Print
+      - fmt.Printf
+      - fmt.Println
+      # Deferred closes - error handling in defer is awkward
+      - (*os.File).Close
+      # Cleanup in defer - best effort
+      - os.Remove
+      - os.RemoveAll
+      # Environment setup in tests
+      - os.Setenv
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment  # Too pedantic
+      - shadow          # Too strict for tests
+  misspell:
+    locale: US
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
