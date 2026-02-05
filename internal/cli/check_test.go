@@ -18,13 +18,17 @@ func TestRunCheckBasic(t *testing.T) {
 	projectDir, cleanupProject := setupProjectForCheck(t, "checktest")
 	defer cleanupProject()
 
-	store, _ := store.Load()
-	store.Set("checktest.db.host", "localhost")
-	store.Save()
+	st, _ := store.Load()
+	st.Set("checktest.db.host", "localhost")
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save store: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runCheck([]string{}, &stdout, &stderr)
@@ -50,11 +54,15 @@ func TestRunCheckShowsProjectName(t *testing.T) {
 
 	store, _ := store.Load()
 	store.Set("namedproject.key", "value")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runCheck([]string{}, &stdout, &stderr)
@@ -78,11 +86,15 @@ func TestRunCheckMissingVarsWarning(t *testing.T) {
 	store, _ := store.Load()
 	store.Set("checkmissing.db.host", "localhost")
 	// db.port is in the include but not set - should show as missing
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runCheck([]string{}, &stdout, &stderr)
@@ -108,11 +120,15 @@ func TestRunCheckStrictMode(t *testing.T) {
 	store, _ := store.Load()
 	store.Set("checkstrict.db.host", "localhost")
 	// db.port is required but not set
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runCheck([]string{"--strict"}, &stdout, &stderr)
@@ -139,11 +155,15 @@ func TestRunCheckStrictModeAllPresent(t *testing.T) {
 
 	store, _ := store.Load()
 	store.Set("checkstrictok.db.host", "localhost")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runCheck([]string{"--strict"}, &stdout, &stderr)
@@ -167,8 +187,10 @@ func TestRunCheckNoConfig(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runCheck([]string{}, &stdout, &stderr)
@@ -192,16 +214,22 @@ func TestRunCheckNoIncludePatterns(t *testing.T) {
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "noincludes")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = "noincludes"
 	cfg.Include = []string{} // No patterns
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runCheck([]string{}, &stdout, &stderr)
@@ -227,7 +255,9 @@ func TestRunCheckComputedValues(t *testing.T) {
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "checkcomputed")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = "checkcomputed"
@@ -235,17 +265,23 @@ func TestRunCheckComputedValues(t *testing.T) {
 	cfg.Computed = map[string]string{
 		"DATABASE_URL": "postgres://${db.user}@${db.host}/${db.name}",
 	}
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	store, _ := store.Load()
 	store.Set("checkcomputed.db.host", "localhost")
 	store.Set("checkcomputed.db.user", "admin")
 	store.Set("checkcomputed.db.name", "mydb")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runCheck([]string{}, &stdout, &stderr)
@@ -323,12 +359,16 @@ func setupProjectForCheck(t *testing.T, projectName string) (string, func()) {
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"db.*"}
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	return projectDir, func() {
 		os.RemoveAll(projectDir)
@@ -346,13 +386,17 @@ func setupProjectForCheckWithRequired(t *testing.T, projectName string) (string,
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = projectName
 	// Use specific keys instead of wildcards so we can test missing vars
 	cfg.Include = []string{"db.host", "db.port"}
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	return projectDir, func() {
 		os.RemoveAll(projectDir)

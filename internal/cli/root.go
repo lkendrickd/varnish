@@ -11,7 +11,6 @@
 //	varnish init [flags]
 //	varnish store <subcommand> [flags]
 //	varnish env [flags]
-//	varnish run [flags] -- <command>
 //	varnish list [flags]
 //	varnish version
 //	varnish help
@@ -46,10 +45,6 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runStore(cmdArgs, stdout, stderr)
 	case "env":
 		return runEnv(cmdArgs, stdout, stderr)
-	case "export":
-		return runExport(cmdArgs, stdout, stderr)
-	case "run":
-		return runRun(cmdArgs, stdout, stderr)
 	case "list":
 		return runList(cmdArgs, stdout, stderr)
 	case "project":
@@ -80,8 +75,6 @@ Commands:
   init        Initialize project (.varnish.yaml)
   store       Manage central store (set/get/list/delete/import)
   env         Generate .env file from store + project config
-  export      Output shell export statements (use with eval)
-  run         Execute command with injected env vars
   list        Show project's resolved variables
   project     Show current project name
   check       Validate config and check for missing variables
@@ -92,7 +85,6 @@ Commands:
 Examples:
   varnish store set database.host localhost --project myapp
   varnish env --force
-  eval $(varnish export)
 
 Run 'varnish <command> -h' for help on a specific command.`)
 }

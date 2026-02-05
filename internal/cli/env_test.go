@@ -21,11 +21,15 @@ func TestRunEnvDryRun(t *testing.T) {
 	store, _ := store.Load()
 	store.Set("envdry.db.host", "localhost")
 	store.Set("envdry.db.port", "5432")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runEnv([]string{"--dry-run"}, &stdout, &stderr)
@@ -54,11 +58,15 @@ func TestRunEnvWriteFile(t *testing.T) {
 
 	store, _ := store.Load()
 	store.Set("envwrite.api.key", "secret123")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runEnv([]string{"--force"}, &stdout, &stderr)
@@ -86,11 +94,15 @@ func TestRunEnvCustomOutput(t *testing.T) {
 
 	store, _ := store.Load()
 	store.Set("envcustom.test.key", "value")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runEnv([]string{"--output", ".env.local"}, &stdout, &stderr)
@@ -118,14 +130,20 @@ func TestRunEnvExistsNoForce(t *testing.T) {
 
 	store, _ := store.Load()
 	store.Set("envexists.key", "value")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	// Create existing .env
-	os.WriteFile(".env", []byte("existing"), 0644)
+	if err := os.WriteFile(".env", []byte("existing"), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runEnv([]string{}, &stdout, &stderr)
@@ -146,14 +164,20 @@ func TestRunEnvForceOverwrite(t *testing.T) {
 
 	store, _ := store.Load()
 	store.Set("envforce.new.key", "newvalue")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	// Create existing .env
-	os.WriteFile(".env", []byte("old content"), 0644)
+	if err := os.WriteFile(".env", []byte("old content"), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runEnv([]string{"--force"}, &stdout, &stderr)
@@ -181,8 +205,10 @@ func TestRunEnvNoConfig(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runEnv([]string{}, &stdout, &stderr)
@@ -201,8 +227,10 @@ func TestRunEnvMissingVarsWarning(t *testing.T) {
 	// Don't add any variables to store - they'll be missing
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runEnv([]string{"--dry-run"}, &stdout, &stderr)
@@ -256,12 +284,16 @@ func setupProjectForEnv(t *testing.T, projectName string) (string, func()) {
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"db.*", "api.*", "test.*", "key", "new.*"}
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	return projectDir, func() {
 		os.RemoveAll(projectDir)

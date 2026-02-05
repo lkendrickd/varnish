@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -46,17 +45,23 @@ func TestRunProjectName(t *testing.T) {
 	// Register the project
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "testproj")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	// Create project config
 	cfg := project.New()
 	cfg.Project = "testproj"
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	// Change to project directory
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runProject([]string{}, &stdout, &stderr)
@@ -81,15 +86,21 @@ func TestRunProjectNameWithPath(t *testing.T) {
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "pathtest")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = "pathtest"
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runProject([]string{"--path"}, &stdout, &stderr)
@@ -114,8 +125,10 @@ func TestRunProjectNotRegistered(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runProject([]string{}, &stdout, &stderr)
@@ -136,7 +149,9 @@ func TestRunProjectList(t *testing.T) {
 	st.Set("alpha.db.host", "localhost")
 	st.Set("alpha.db.port", "5432")
 	st.Set("beta.api.key", "secret")
-	st.Save()
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runProject([]string{"list"}, &stdout, &stderr)
@@ -180,7 +195,9 @@ func TestRunProjectDelete(t *testing.T) {
 	st.Set("deleteme.var1", "value1")
 	st.Set("deleteme.var2", "value2")
 	st.Set("keepme.var1", "value1")
-	st.Save()
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runProject([]string{"delete", "deleteme"}, &stdout, &stderr)
@@ -209,7 +226,9 @@ func TestRunProjectDeleteDryRun(t *testing.T) {
 	st := store.New()
 	st.Set("dryrun.var1", "value1")
 	st.Set("dryrun.var2", "value2")
-	st.Save()
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runProject([]string{"delete", "--dry-run", "dryrun"}, &stdout, &stderr)
@@ -276,12 +295,16 @@ func TestRunProjectListWithRegistry(t *testing.T) {
 	// Register it
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "registered")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	// Add to store
 	st := store.New()
 	st.Set("registered.key", "value")
-	st.Save()
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runProject([]string{"list"}, &stdout, &stderr)
@@ -313,16 +336,22 @@ func TestRunProjectDeleteCleansRegistry(t *testing.T) {
 	// Register and create config
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "toclean")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = "toclean"
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	// Add to store
 	st := store.New()
 	st.Set("toclean.key", "value")
-	st.Save()
+	if err := st.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runProject([]string{"delete", "toclean"}, &stdout, &stderr)
@@ -339,34 +368,5 @@ func TestRunProjectDeleteCleansRegistry(t *testing.T) {
 	// Verify config was deleted
 	if project.Exists("toclean") {
 		t.Error("project config should have been deleted")
-	}
-}
-
-func setupProjectWithEnv(t *testing.T, projectName string) (string, func()) {
-	t.Helper()
-
-	projectDir, err := os.MkdirTemp("", "varnish-project-*")
-	if err != nil {
-		t.Fatalf("failed to create project dir: %v", err)
-	}
-
-	envContent := "TEST_VAR=value\n"
-	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte(envContent), 0644); err != nil {
-		t.Fatalf("failed to write .env: %v", err)
-	}
-
-	// Register project
-	reg, _ := registry.Load()
-	reg.Register(projectDir, projectName)
-	reg.Save()
-
-	// Create config
-	cfg := project.New()
-	cfg.Project = projectName
-	cfg.Include = []string{"test.*"}
-	cfg.Save()
-
-	return projectDir, func() {
-		os.RemoveAll(projectDir)
 	}
 }

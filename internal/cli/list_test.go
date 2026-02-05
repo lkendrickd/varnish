@@ -22,11 +22,15 @@ func TestRunListBasic(t *testing.T) {
 	// Add variables to store
 	store, _ := store.Load()
 	store.Set("listtest.test.var", "value123")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runList([]string{}, &stdout, &stderr)
@@ -55,11 +59,15 @@ func TestRunListJSON(t *testing.T) {
 
 	store, _ := store.Load()
 	store.Set("listjson.test.var", "jsonvalue")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runList([]string{"--json"}, &stdout, &stderr)
@@ -89,8 +97,10 @@ func TestRunListMissing(t *testing.T) {
 	// Don't add any variables to store - they'll be missing
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runList([]string{"--missing"}, &stdout, &stderr)
@@ -114,11 +124,15 @@ func TestRunListMissingNone(t *testing.T) {
 	// Add all required variables
 	store, _ := store.Load()
 	store.Set("nomissing.test.var", "present")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runList([]string{"--missing"}, &stdout, &stderr)
@@ -140,8 +154,10 @@ func TestRunListMissingJSON(t *testing.T) {
 	defer cleanupProject()
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := runList([]string{"--missing", "--json"}, &stdout, &stderr)
@@ -168,16 +184,22 @@ func TestRunListEmpty(t *testing.T) {
 	// Create project with no include patterns
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "emptylist")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = "emptylist"
 	cfg.Include = []string{} // No patterns
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runList([]string{}, &stdout, &stderr)
@@ -202,8 +224,10 @@ func TestRunListNoConfig(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runList([]string{}, &stdout, &stderr)
@@ -227,21 +251,29 @@ func TestRunListShowsSource(t *testing.T) {
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, "sourcetest")
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = "sourcetest"
 	cfg.Include = []string{"db.*"}
 	cfg.Overrides = map[string]string{"db.name": "override_db"}
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	store, _ := store.Load()
 	store.Set("sourcetest.db.host", "localhost")
-	store.Save()
+	if err := store.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runList([]string{}, &stdout, &stderr)
@@ -297,12 +329,16 @@ func setupProjectForList(t *testing.T, projectName string) (string, func()) {
 
 	reg, _ := registry.Load()
 	reg.Register(projectDir, projectName)
-	reg.Save()
+	if err := reg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	cfg := project.New()
 	cfg.Project = projectName
 	cfg.Include = []string{"test.*"}
-	cfg.Save()
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
 
 	return projectDir, func() {
 		os.RemoveAll(projectDir)

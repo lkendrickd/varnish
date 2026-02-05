@@ -93,11 +93,8 @@ varnish init --from config.env
 # Generate .env file for your project
 varnish env
 
-# Or load directly into your shell
-eval $(varnish export)
-
-# Or run a command with env vars injected
-varnish run -- ./myserver
+# Load into your shell
+set -a && source .env && set +a
 ```
 
 ## Project Namespacing
@@ -236,28 +233,13 @@ varnish env --output .env.local  # Custom output path
 
 ### Load Into Shell
 
-Load environment variables directly into your current terminal session:
+Load environment variables from the generated `.env` file:
 
 ```bash
-# bash/zsh - evaluate export statements
-eval $(varnish export)
+# bash/zsh - source with auto-export
+set -a && source .env && set +a
 
-# bash/zsh - alternative using process substitution
-source <(varnish export)
-
-# Save to file for later
-varnish export > .env.sh
-source .env.sh
-```
-
-This outputs `export VAR=value` statements that your shell executes, making the variables available to all subsequent commands in that session.
-
-### Run Commands
-
-```bash
-varnish run -- ./myserver              # Run with env vars
-varnish run -- printenv | grep DB      # Debug what's set
-varnish run --clean -- ./myserver      # Start with empty env
+# Or add to your shell profile/scripts
 ```
 
 ### Check Status
@@ -292,8 +274,6 @@ varnish project delete --dry-run myapp  # Preview what would be deleted
 | `varnish store delete <key>` | Remove variable from store (alias: `rm`) |
 | `varnish store import <file>` | Import variables from .env file |
 | `varnish env` | Generate `.env` file from store + project config |
-| `varnish export` | Output `export` statements for shell eval |
-| `varnish run -- <cmd>` | Execute command with env vars injected |
 | `varnish list` | Show project's resolved variables |
 | `varnish list --json` | Output as JSON |
 | `varnish check` | Validate config and check for missing variables |

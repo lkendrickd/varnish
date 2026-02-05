@@ -71,7 +71,7 @@ _varnish_completions() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="init store env export run list project completion version help"
+    local commands="init store env list project completion version help"
     local store_commands="set get list ls delete rm import"
     local project_commands="name list delete"
 
@@ -95,9 +95,6 @@ _varnish_completions() {
                     ;;
                 env)
                     COMPREPLY=($(compgen -W "--dry-run --force --output" -- "${cur}"))
-                    ;;
-                export)
-                    COMPREPLY=($(compgen -W "--format" -- "${cur}"))
                     ;;
                 list)
                     COMPREPLY=($(compgen -W "--missing --json" -- "${cur}"))
@@ -146,8 +143,6 @@ _varnish() {
         'init:Initialize project with .varnish.yaml'
         'store:Manage central variable store'
         'env:Generate .env file'
-        'export:Output shell export statements'
-        'run:Execute command with env vars'
         'list:Show resolved variables'
         'project:Show/manage project info'
         'completion:Generate shell completion'
@@ -260,8 +255,6 @@ complete -c varnish -f
 complete -c varnish -n "__fish_use_subcommand" -a "init" -d "Initialize project"
 complete -c varnish -n "__fish_use_subcommand" -a "store" -d "Manage variable store"
 complete -c varnish -n "__fish_use_subcommand" -a "env" -d "Generate .env file"
-complete -c varnish -n "__fish_use_subcommand" -a "export" -d "Output export statements"
-complete -c varnish -n "__fish_use_subcommand" -a "run" -d "Run command with env vars"
 complete -c varnish -n "__fish_use_subcommand" -a "list" -d "Show resolved variables"
 complete -c varnish -n "__fish_use_subcommand" -a "project" -d "Project info"
 complete -c varnish -n "__fish_use_subcommand" -a "completion" -d "Generate completions"

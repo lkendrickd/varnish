@@ -30,8 +30,10 @@ func TestRunInitBasic(t *testing.T) {
 
 	// Change to project directory
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runInit([]string{}, &stdout, &stderr)
@@ -64,8 +66,10 @@ func TestRunInitWithProjectName(t *testing.T) {
 	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runInit([]string{"--project", "myapp"}, &stdout, &stderr)
@@ -104,8 +108,10 @@ func TestRunInitFromExampleEnv(t *testing.T) {
 	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runInit([]string{}, &stdout, &stderr)
@@ -129,8 +135,10 @@ func TestRunInitNoEnvFile(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runInit([]string{}, &stdout, &stderr)
@@ -161,8 +169,10 @@ func TestRunInitWithFromFlag(t *testing.T) {
 	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runInit([]string{"-f", "config.env"}, &stdout, &stderr)
@@ -191,8 +201,10 @@ func TestRunInitAlreadyExists(t *testing.T) {
 	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 
@@ -230,8 +242,10 @@ func TestRunInitForce(t *testing.T) {
 	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 
@@ -268,8 +282,10 @@ func TestRunInitSync(t *testing.T) {
 	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 
@@ -315,8 +331,10 @@ func TestRunInitNoImport(t *testing.T) {
 	}
 
 	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(projectDir)
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err = runInit([]string{"--project", "noimport", "--no-import"}, &stdout, &stderr)
