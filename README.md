@@ -264,6 +264,8 @@ varnish project delete --dry-run myapp  # Preview what would be deleted
 | Command | Description |
 |---------|-------------|
 | `varnish init` | Initialize project, create `.varnish.yaml`, import defaults |
+| `varnish init --encrypt` | Enable store encryption |
+| `varnish init --encrypt --password <pwd>` | Enable encryption with password flag |
 | `varnish init --sync` | Sync store with .env (removes empty vars) |
 | `varnish store set <key> <value>` | Add/update variable (auto-detects project) |
 | `varnish store set <key>=<value>` | Alternative syntax with equals sign |
@@ -273,6 +275,7 @@ varnish project delete --dry-run myapp  # Preview what would be deleted
 | `varnish store list --json` | Output as JSON |
 | `varnish store delete <key>` | Remove variable from store (alias: `rm`) |
 | `varnish store import <file>` | Import variables from .env file |
+| `varnish store encrypt` | Encrypt the store (requires --password or VARNISH_PASSWORD) |
 | `varnish env` | Generate `.env` file from store + project config |
 | `varnish list` | Show project's resolved variables |
 | `varnish list --json` | Output as JSON |
@@ -358,6 +361,45 @@ Key transformation:
 - Use `--stdin` to avoid secrets in shell history
 - Generated `.env` files have 0600 permissions
 - Add `.env` to `.gitignore`
+
+## Store Encryption
+
+For additional security, enable encryption for the store file:
+
+### Enable Encryption
+
+```bash
+# Option 1: Use --password flag
+varnish init --encrypt --password "your-secure-password"
+
+# Option 2: Set password in environment
+export VARNISH_PASSWORD="your-secure-password"
+varnish init --encrypt
+
+# Encrypt an existing store
+varnish store encrypt --password "your-secure-password"
+# Or with env var:
+export VARNISH_PASSWORD="your-secure-password"
+varnish store encrypt
+
+# All subsequent commands work transparently (with VARNISH_PASSWORD set)
+varnish store set api.key "secret123"
+varnish env
+```
+
+### How It Works
+
+- Store is encrypted with AES-256-GCM
+- Password-derived key using Argon2id
+- Encryption persists once enabled
+- All commands require `VARNISH_PASSWORD` when store is encrypted
+
+### Error Handling
+
+If `VARNISH_PASSWORD` is not set when accessing an encrypted store:
+```
+Error: encrypted store requires password: VARNISH_PASSWORD environment variable not set
+```
 
 ## Development
 

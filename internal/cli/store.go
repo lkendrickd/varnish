@@ -27,6 +27,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dk/varnish/internal/crypto"
 	"github.com/dk/varnish/internal/project"
 	"github.com/dk/varnish/internal/registry"
 	"github.com/dk/varnish/internal/store"
@@ -95,6 +96,8 @@ func runStore(args []string, stdout, stderr io.Writer) error {
 		return runStoreDelete(subArgs, stdout, stderr)
 	case "import":
 		return runStoreImport(subArgs, stdout, stderr)
+	case "encrypt":
+		return runStoreEncrypt(subArgs, stdout, stderr)
 	case "help", "-h", "--help":
 		printStoreUsage(stdout)
 		return nil
@@ -116,6 +119,7 @@ Subcommands:
   list, ls            List all variables (optional glob filter)
   delete, rm <key>    Remove a variable from the store
   import <file>       Import variables from a .env file
+  encrypt             Enable encryption on the store
 
 Keys can use either dot notation (db.host) or shell-style (DATABASE_HOST).
 Shell-style keys are automatically converted: DATABASE_HOST → database.host
@@ -475,6 +479,54 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "imported %d variables\n", count)
+	return nil
+}
+
+func runStoreEncrypt(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("store encrypt", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	password := fs.String("password", "", "encryption password (or set VARNISH_PASSWORD)")
+
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+
+	// If --password provided, set the env var for this session
+	if *password != "" {
+		os.Setenv(crypto.PasswordEnvVar, *password)
+	}
+
+	// Validate password is available
+	if _, err := crypto.GetPassword(); err != nil {
+		return fmt.Errorf("encryption requires --password or VARNISH_PASSWORD env var")
+	}
+
+	// Load store
+	st, err := store.Load()
+	if err != nil {
+		return fmt.Errorf("load store: %w", err)
+	}
+
+	// Check if already encrypted
+	if st.IsEncrypted() {
+		fmt.Fprintln(stdout, "store is already encrypted")
+		return nil
+	}
+
+	// Enable encryption
+	if err := st.EnableEncryption(); err != nil {
+		return fmt.Errorf("enable encryption: %w", err)
+	}
+
+	// Save encrypted store
+	if err := st.Save(); err != nil {
+		return fmt.Errorf("save store: %w", err)
+	}
+
+	fmt.Fprintf(stdout, "store encrypted (%d variables)\n", st.Len())
 	return nil
 }
 

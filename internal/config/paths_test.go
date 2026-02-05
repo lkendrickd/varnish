@@ -263,3 +263,86 @@ func TestConstants(t *testing.T) {
 		t.Errorf("PermConfig = %o, want 0644", PermConfig)
 	}
 }
+
+func TestFindProjectConfig(t *testing.T) {
+	// Create temp directory structure
+	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create nested directories
+	deepDir := filepath.Join(tmpDir, "a", "b", "c")
+	if err := os.MkdirAll(deepDir, 0755); err != nil {
+		t.Fatalf("failed to create nested dirs: %v", err)
+	}
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+
+	// Test 1: No config file exists
+	if err := os.Chdir(deepDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	path, err := FindProjectConfig()
+	if err != nil {
+		t.Fatalf("FindProjectConfig() error: %v", err)
+	}
+	if path != "" {
+		t.Errorf("expected empty path when no config exists, got %q", path)
+	}
+
+	// Test 2: Config file in parent directory
+	configPath := filepath.Join(tmpDir, "a", ProjectConfigName)
+	if err := os.WriteFile(configPath, []byte("version: 1"), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	path, err = FindProjectConfig()
+	if err != nil {
+		t.Fatalf("FindProjectConfig() error: %v", err)
+	}
+	if path != configPath {
+		t.Errorf("FindProjectConfig() = %q, want %q", path, configPath)
+	}
+
+	// Test 3: Config file in current directory (should take precedence)
+	localConfig := filepath.Join(deepDir, ProjectConfigName)
+	if err := os.WriteFile(localConfig, []byte("version: 1"), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	path, err = FindProjectConfig()
+	if err != nil {
+		t.Fatalf("FindProjectConfig() error: %v", err)
+	}
+	if path != localConfig {
+		t.Errorf("FindProjectConfig() = %q, want %q (local config)", path, localConfig)
+	}
+}
+
+func TestProjectConfigPath(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "varnish-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	path, err := ProjectConfigPath()
+	if err != nil {
+		t.Fatalf("ProjectConfigPath() error: %v", err)
+	}
+
+	expected := filepath.Join(tmpDir, ProjectConfigName)
+	if path != expected {
+		t.Errorf("ProjectConfigPath() = %q, want %q", path, expected)
+	}
+}

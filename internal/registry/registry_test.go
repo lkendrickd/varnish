@@ -189,3 +189,105 @@ func TestLookupParentDirs(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSaveWithRealPath(t *testing.T) {
+	// Create a temp HOME to test Load() and Save() with real paths
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	t.Setenv("HOME", tmpHome)
+
+	// Load should return empty registry when no file exists
+	reg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(reg.Projects) != 0 {
+		t.Errorf("expected empty registry, got %d projects", len(reg.Projects))
+	}
+
+	// Add some data and save
+	reg.Register("/path/to/myapp", "myapp")
+	reg.Register("/path/to/other", "otherapp")
+	if err := reg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Load again and verify
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() after save error: %v", err)
+	}
+	if len(loaded.Projects) != 2 {
+		t.Errorf("expected 2 projects, got %d", len(loaded.Projects))
+	}
+	if loaded.Lookup("/path/to/myapp") != "myapp" {
+		t.Error("expected myapp project")
+	}
+}
+
+func TestLookupCurrent(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	// Create a project directory
+	projectDir := filepath.Join(tmpHome, "myproject")
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	t.Setenv("HOME", tmpHome)
+
+	// Register the project
+	reg := New()
+	reg.Register(projectDir, "testproj")
+	if err := reg.Save(); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	// Change to the project directory
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	// Load and test LookupCurrent
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	proj := loaded.LookupCurrent()
+	if proj != "testproj" {
+		t.Errorf("LookupCurrent() = %q, want 'testproj'", proj)
+	}
+}
+
+func TestLookupCurrentNotRegistered(t *testing.T) {
+	tmpHome, err := os.MkdirTemp("", "varnish-home-*")
+	if err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+
+	t.Setenv("HOME", tmpHome)
+
+	origWd, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origWd) }()
+	if err := os.Chdir(tmpHome); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	reg := New()
+	proj := reg.LookupCurrent()
+	if proj != "" {
+		t.Errorf("LookupCurrent() = %q, want empty string", proj)
+	}
+}

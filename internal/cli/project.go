@@ -273,8 +273,15 @@ func runProjectDelete(args []string, stdout, stderr io.Writer) error {
 		st.Delete(key)
 	}
 
-	if saveErr := st.Save(); saveErr != nil {
-		return fmt.Errorf("save store: %w", saveErr)
+	// If store is now empty, remove the file entirely
+	if st.Len() == 0 {
+		if removeErr := store.Remove(); removeErr != nil {
+			return fmt.Errorf("remove store: %w", removeErr)
+		}
+	} else {
+		if saveErr := st.Save(); saveErr != nil {
+			return fmt.Errorf("save store: %w", saveErr)
+		}
 	}
 
 	// Also remove from registry and delete config
