@@ -47,15 +47,15 @@ func detectProject() string {
 // normalizeKey converts shell-style variable names to dot notation.
 // DATABASE_HOST → database.host
 // API_KEY → api.key
+// PORT → port (single words are lowercased)
 // If the key is already in dot notation or mixed case, it's returned unchanged.
 func normalizeKey(key string) string {
 	// Check if this looks like a shell-style variable (UPPER_SNAKE_CASE)
 	// Must contain only uppercase letters, digits, and underscores
 	isShellStyle := true
-	hasUnderscore := false
 	for _, r := range key {
 		if r == '_' {
-			hasUnderscore = true
+			// underscore - OK
 		} else if r >= 'A' && r <= 'Z' {
 			// uppercase letter - OK
 		} else if r >= '0' && r <= '9' {
@@ -67,8 +67,8 @@ func normalizeKey(key string) string {
 		}
 	}
 
-	// Only convert if it's shell-style with at least one underscore
-	if !isShellStyle || !hasUnderscore {
+	// Only convert if it's shell-style (all uppercase)
+	if !isShellStyle {
 		return key
 	}
 
