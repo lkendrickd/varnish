@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dk/varnish/internal/config"
@@ -56,19 +57,79 @@ func printProjectUsage(w io.Writer) {
 
 Subcommands:
   name            Show current project name (default)
-  list            List all projects in the store
-  delete <name>   Delete all variables for a project
+  list            List all projects in the store (with numeric IDs)
+  delete <ref>    Delete all variables for a project (by name or ID)
 
 Flags:
   --path      Show path to project config (with 'name')
   --dry-run   Preview deletions without making changes (with 'delete')
 
+Projects can be referenced by name or numeric ID from 'varnish project list'.
+
 Examples:
   varnish project                   # show current project name
   varnish project --path            # show path to project config
-  varnish project list              # list all projects in store
-  varnish project delete myapp      # delete all myapp variables
-  varnish project delete myapp --dry-run  # preview what would be deleted`)
+  varnish project list              # list all projects with IDs
+  varnish project delete myapp      # delete by name
+  varnish project delete 1          # delete by ID
+  varnish project delete 2 --dry-run  # preview deletion by ID`)
+}
+
+// getOrderedProjects returns project names sorted alphabetically with their variable counts.
+// The order is stable and used for numeric ID assignment.
+func getOrderedProjects() ([]string, map[string]int, error) {
+	st, err := store.Load()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load store: %w", err)
+	}
+
+	// Extract unique project prefixes from store keys
+	projects := make(map[string]int) // project -> variable count
+	for _, key := range st.Keys() {
+		idx := strings.Index(key, ".")
+		if idx > 0 {
+			proj := key[:idx]
+			projects[proj]++
+		}
+	}
+
+	// Sort project names for stable ordering
+	names := make([]string, 0, len(projects))
+	for name := range projects {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	return names, projects, nil
+}
+
+// resolveProjectRef converts a project reference (name or numeric ID) to a project name.
+// If ref is a number like "1", "2", etc., it looks up the project by index.
+// Otherwise, it returns the ref as-is (assumed to be a project name).
+func resolveProjectRef(ref string) (string, error) {
+	// Try to parse as a number
+	num, err := strconv.Atoi(ref)
+	if err != nil {
+		// Not a number, return as-is (it's a project name)
+		return ref, nil
+	}
+
+	// It's a number, look up by index
+	names, _, err := getOrderedProjects()
+	if err != nil {
+		return "", err
+	}
+
+	if len(names) == 0 {
+		return "", fmt.Errorf("no projects found in store")
+	}
+
+	// IDs are 1-based
+	if num < 1 || num > len(names) {
+		return "", fmt.Errorf("invalid project ID: %d (valid range: 1-%d)", num, len(names))
+	}
+
+	return names[num-1], nil
 }
 
 // runProjectName shows the current project name
@@ -125,52 +186,32 @@ func runProjectList(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	st, err := store.Load()
+	names, projects, err := getOrderedProjects()
 	if err != nil {
-		return fmt.Errorf("load store: %w", err)
+		return err
 	}
 
-	// Extract unique project prefixes from store keys
-	projects := make(map[string]int) // project -> variable count
-	for _, key := range st.Keys() {
-		// Keys are like "projectname.db.host"
-		// Extract the first segment as project name
-		idx := strings.Index(key, ".")
-		if idx > 0 {
-			proj := key[:idx]
-			projects[proj]++
-		}
-	}
-
-	if len(projects) == 0 {
+	if len(names) == 0 {
 		fmt.Fprintln(stderr, "no projects found in store")
 		return nil
 	}
 
-	// Sort project names
-	names := make([]string, 0, len(projects))
-	for name := range projects {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
 	// Load registry to show registered directories
-	reg, err := registry.Load()
-	if err != nil {
-		// Non-fatal, just show without directory info
-		for _, name := range names {
-			fmt.Fprintf(stdout, "%s (%d variables)\n", name, projects[name])
-		}
-		return nil
-	}
+	reg, regErr := registry.Load()
 
-	// Print projects with variable counts and registered directories
-	for _, name := range names {
-		dirs := reg.ProjectDirs(name)
-		if len(dirs) > 0 {
-			fmt.Fprintf(stdout, "%s (%d variables) → %s\n", name, projects[name], dirs[0])
+	// Print projects with IDs, variable counts, and registered directories
+	for i, name := range names {
+		id := i + 1 // 1-based IDs
+		if regErr != nil {
+			// No registry, just show without directory info
+			fmt.Fprintf(stdout, "%d  %s (%d variables)\n", id, name, projects[name])
 		} else {
-			fmt.Fprintf(stdout, "%s (%d variables)\n", name, projects[name])
+			dirs := reg.ProjectDirs(name)
+			if len(dirs) > 0 {
+				fmt.Fprintf(stdout, "%d  %s (%d variables) → %s\n", id, name, projects[name], dirs[0])
+			} else {
+				fmt.Fprintf(stdout, "%d  %s (%d variables)\n", id, name, projects[name])
+			}
 		}
 	}
 
@@ -191,11 +232,15 @@ func runProjectDelete(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: varnish project delete <project-name> [--dry-run]")
-		return fmt.Errorf("expected project name")
+		fmt.Fprintln(stderr, "usage: varnish project delete <name-or-id> [--dry-run]")
+		return fmt.Errorf("expected project name or ID")
 	}
 
-	projectName := fs.Arg(0)
+	// Resolve project reference (could be name or numeric ID)
+	projectName, err := resolveProjectRef(fs.Arg(0))
+	if err != nil {
+		return err
+	}
 	prefix := projectName + "."
 
 	st, err := store.Load()

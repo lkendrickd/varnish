@@ -121,7 +121,7 @@ Keys can use either dot notation (db.host) or shell-style (DATABASE_HOST).
 Shell-style keys are automatically converted: DATABASE_HOST → database.host
 
 Flags:
-  -p, --project <name>  Namespace under project (auto-detected from .varnish.yaml)
+  -p, --project <ref>   Namespace under project (name or ID from 'varnish project list')
   -g, --global          Bypass project auto-detection, use global namespace
 
 When in a directory with .varnish.yaml, the project is auto-detected.
@@ -130,10 +130,24 @@ Use --global to set/get variables without a project prefix.
 Examples:
   varnish store set db.host localhost      # dot notation
   varnish store set DATABASE_HOST localhost # shell-style (same as above)
-  varnish store set db.host=localhost      # key=value syntax
-  varnish store get DATABASE_HOST          # get using shell-style key
-  varnish store list                       # shows current project's vars
+  varnish store set -p 1 db.host localhost # by project ID
+  varnish store list -p 2                  # list project #2's vars
   varnish store list --global              # shows all vars`)
+}
+
+// resolveProjectFlag resolves the project flag value.
+// If projectFlag is set, it resolves it (could be name or numeric ID).
+// If projectFlag is empty and not global, it auto-detects from current directory.
+// Returns the resolved project name (empty string if global/no project).
+func resolveProjectFlag(projectFlag string, global bool) (string, error) {
+	if global {
+		return "", nil
+	}
+	if projectFlag == "" {
+		return detectProject(), nil
+	}
+	// Resolve the project reference (could be name or ID)
+	return resolveProjectRef(projectFlag)
 }
 
 // runStoreSet handles: varnish store set <key> <value> [--stdin] [--project]
@@ -161,9 +175,10 @@ func runStoreSet(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("missing key")
 	}
 
-	// Auto-detect project if not specified and not global
-	if *projectFlag == "" && !*global {
-		*projectFlag = detectProject()
+	// Resolve project (auto-detect or resolve ID/name)
+	resolvedProject, err := resolveProjectFlag(*projectFlag, *global)
+	if err != nil {
+		return err
 	}
 
 	var key, value string
@@ -197,8 +212,8 @@ func runStoreSet(args []string, stdout, stderr io.Writer) error {
 
 	// Apply project prefix
 	storeKey := key
-	if *projectFlag != "" {
-		storeKey = *projectFlag + "." + key
+	if resolvedProject != "" {
+		storeKey = resolvedProject + "." + key
 	}
 
 	// Load, modify, save
@@ -216,8 +231,8 @@ func runStoreSet(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "set %s\n", storeKey)
 
 	// If we have a project, ensure the key pattern is in the project's include list
-	if *projectFlag != "" {
-		if err := ensureIncludePattern(*projectFlag, key, stdout); err != nil {
+	if resolvedProject != "" {
+		if err := ensureIncludePattern(resolvedProject, key, stdout); err != nil {
 			// Non-fatal - warn but don't fail
 			fmt.Fprintf(stderr, "warning: could not update project config: %v\n", err)
 		}
@@ -246,15 +261,16 @@ func runStoreGet(args []string, stdout, stderr io.Writer) error {
 
 	key := normalizeKey(fs.Arg(0))
 
-	// Auto-detect project if not specified and not global
-	if *projectFlag == "" && !*global {
-		*projectFlag = detectProject()
+	// Resolve project (auto-detect or resolve ID/name)
+	resolvedProject, err := resolveProjectFlag(*projectFlag, *global)
+	if err != nil {
+		return err
 	}
 
 	// Apply project prefix
 	storeKey := key
-	if *projectFlag != "" {
-		storeKey = *projectFlag + "." + key
+	if resolvedProject != "" {
+		storeKey = resolvedProject + "." + key
 	}
 
 	st, err := store.Load()
@@ -286,9 +302,10 @@ func runStoreList(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	// Auto-detect project if not specified and not global
-	if *projectFlag == "" && !*global {
-		*projectFlag = detectProject()
+	// Resolve project (auto-detect or resolve ID/name)
+	resolvedProject, err := resolveProjectFlag(*projectFlag, *global)
+	if err != nil {
+		return err
 	}
 
 	st, err := store.Load()
@@ -309,10 +326,10 @@ func runStoreList(args []string, stdout, stderr io.Writer) error {
 
 	// Build effective pattern
 	effectivePattern := *pattern
-	if *projectFlag != "" && effectivePattern == "" {
-		effectivePattern = *projectFlag + ".*"
-	} else if *projectFlag != "" {
-		effectivePattern = *projectFlag + "." + effectivePattern
+	if resolvedProject != "" && effectivePattern == "" {
+		effectivePattern = resolvedProject + ".*"
+	} else if resolvedProject != "" {
+		effectivePattern = resolvedProject + "." + effectivePattern
 	}
 
 	// Collect matching variables
@@ -361,15 +378,16 @@ func runStoreDelete(args []string, stdout, stderr io.Writer) error {
 
 	key := normalizeKey(fs.Arg(0))
 
-	// Auto-detect project if not specified and not global
-	if *projectFlag == "" && !*global {
-		*projectFlag = detectProject()
+	// Resolve project (auto-detect or resolve ID/name)
+	resolvedProject, err := resolveProjectFlag(*projectFlag, *global)
+	if err != nil {
+		return err
 	}
 
 	// Apply project prefix
 	storeKey := key
-	if *projectFlag != "" {
-		storeKey = *projectFlag + "." + key
+	if resolvedProject != "" {
+		storeKey = resolvedProject + "." + key
 	}
 
 	st, err := store.Load()
@@ -402,13 +420,14 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
-	// Auto-detect project if not specified and not global
-	if *projectFlag == "" && !*global {
-		*projectFlag = detectProject()
+	// Resolve project (auto-detect or resolve ID/name)
+	resolvedProject, err := resolveProjectFlag(*projectFlag, *global)
+	if err != nil {
+		return err
 	}
 
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: varnish store import <file> [--project name]")
+		fmt.Fprintln(stderr, "usage: varnish store import <file> [--project name-or-id]")
 		return fmt.Errorf("expected exactly one file")
 	}
 
@@ -437,8 +456,8 @@ func runStoreImport(args []string, stdout, stderr io.Writer) error {
 		if v.HasValue {
 			// Apply project prefix
 			storeKey := v.Key
-			if *projectFlag != "" {
-				storeKey = *projectFlag + "." + v.Key
+			if resolvedProject != "" {
+				storeKey = resolvedProject + "." + v.Key
 			}
 			st.Set(storeKey, v.Default)
 			count++
